@@ -1,0 +1,39 @@
+﻿#include "/Engine/Private/Common.ush"
+#include "GroundInteractionCommon.ush"
+
+Texture2D<float2> InputStateTexture;
+RWTexture2D<float2> OutputStateTexture;
+
+int2 TextureSize;
+float DeltaTimeSeconds;
+float FadeRiseSpeed;
+float FadeMaxHeight;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= TextureSize.x || DispatchThreadId.y >= TextureSize.y)
+	{
+		return;
+	}
+
+	const int2 Pixel = int2(DispatchThreadId.xy);
+
+	float2 State = InputStateTexture.Load(int3(Pixel, 0));
+
+	if (!GI_IsValid(State))
+	{
+		OutputStateTexture[Pixel] = GI_InvalidState();
+		return;
+	}
+
+	State.y += FadeRiseSpeed * DeltaTimeSeconds;
+
+	if ((State.y - State.x) >= FadeMaxHeight)
+	{
+		OutputStateTexture[Pixel] = GI_InvalidState();
+		return;
+	}
+
+	OutputStateTexture[Pixel] = State;
+}

@@ -1,0 +1,34 @@
+﻿#include "/Engine/Private/Common.ush"
+#include "GroundInteractionCommon.ush"
+
+Texture2D<float2> InputStateTexture;
+Texture2D<float> CurrentDepthTexture;
+RWTexture2D<float2> OutputStateTexture;
+
+int2 TextureSize;
+float MaxSceneDepth;
+float SceneDepthInvalidEpsilon;
+
+[numthreads(8, 8, 1)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= TextureSize.x || DispatchThreadId.y >= TextureSize.y)
+	{
+		return;
+	}
+	
+	const int2 Pixel = int2(DispatchThreadId.xy);
+
+	float2 State = InputStateTexture.Load(int3(Pixel, 0));
+
+	// SceneDepth 캡처값.
+	const float SceneDepth = CurrentDepthTexture.Load(int3(Pixel, 0)).r;
+	
+	// 지금 위치에 프록시가 있는 경우만 Scene Depth 가 갱신된다.
+	if (GI_IsValidSceneDepth(SceneDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
+	{
+		State = float2(SceneDepth, SceneDepth);
+	}
+
+	OutputStateTexture[Pixel] = State;
+}

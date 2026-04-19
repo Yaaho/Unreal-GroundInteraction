@@ -1,0 +1,18 @@
+﻿float2 GI_InvalidState()
+{
+	return float2(0.0f, -1.0f);
+}
+
+bool GI_IsValid(float2 State)
+{
+	// invalid = (0, -1)
+	// (0, 0) 같은 잘못된 clear/debug 값도 invalid로 취급한다.
+	return State.x > 0.0f && State.y >= State.x;
+}
+
+bool GI_IsValidSceneDepth(float SceneDepth, float MaxSceneDepth, float Epsilon)
+{
+	// SceneDepth pass의 no-hit는 far depth, 즉 MaxSceneDepth 근처로 들어온다.
+	// near 0과 far MaxSceneDepth 양쪽을 모두 버린다.
+	return SceneDepth > Epsilon && SceneDepth < (MaxSceneDepth - Epsilon);
+}
