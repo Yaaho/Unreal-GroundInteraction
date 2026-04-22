@@ -27,9 +27,17 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		return;
 	}
 
-	State.y += FadeRiseSpeed * DeltaTimeSeconds;
-
-	if ((State.y - State.x) >= FadeMaxHeight)
+	if (FadeMaxHeight <= 0.0f)
+	{
+		OutputStateTexture[Pixel] = GI_InvalidState();
+		return;
+	}
+	
+	// Y 값 위로 Fade
+	State.y += max(FadeRiseSpeed, 0.0f) * max(DeltaTimeSeconds, 0.0f);
+	
+	// Y 값이 FadeMaxHeight 보다 커지면 invalidate 함
+	if (State.y >= FadeMaxHeight)
 	{
 		OutputStateTexture[Pixel] = GI_InvalidState();
 		return;

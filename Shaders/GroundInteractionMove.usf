@@ -36,10 +36,14 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			{
 				const float RebaseDeltaZ =
 					PrevCaptureViewOriginZ - CurrentCaptureViewOriginZ;
-
-				Result = PrevState + RebaseDeltaZ.xx;
 				
-				// 이동한 좌표가 캡쳐 볼륨 밖이면 히스토리를 버린다.
+				// Move 시 X 는 절대 깊이이므로 Rebase 하지만
+				// Y 는 상대 높이이므로 rebase 필요 없음
+				Result = float2(
+					PrevState.x + RebaseDeltaZ,
+					PrevState.y);
+
+				// base depth가 capture depth range를 벗어나면 invalid 처리
 				if (!GI_IsValid(Result) ||
 					!GI_IsValidSceneDepth(Result.x, MaxSceneDepth, SceneDepthInvalidEpsilon))
 				{

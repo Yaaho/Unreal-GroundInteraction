@@ -1,18 +1,36 @@
-﻿float2 GI_InvalidState()
+﻿static const float GI_InvalidBaseDepth = 0.0f;
+static const float GI_InvalidFadeHeight = -32768.0f;
+
+float2 GI_InvalidState()
 {
-	return float2(0.0f, -1.0f);
+	return float2(GI_InvalidBaseDepth, GI_InvalidFadeHeight);
 }
 
 bool GI_IsValid(float2 State)
 {
-	// invalid = (0, -1)
-	// (0, 0) 같은 잘못된 clear/debug 값도 invalid로 취급한다.
-	return State.x > 0.0f && State.y >= State.x;
+	// X: absolute depth
+	// Y: fade height
+	return State.x > 0.0f && State.y >= 0.0f;
+}
+
+float GI_GetBaseDepth(float2 State)
+{
+	return State.x;
+}
+
+float GI_GetFadeHeight(float2 State)
+{
+	return State.y;
+}
+
+float GI_GetFadeTopDepth(float2 State)
+{
+	// Fade depth는 x + y 로 재구성
+	return State.x + State.y;
 }
 
 bool GI_IsValidSceneDepth(float SceneDepth, float MaxSceneDepth, float Epsilon)
 {
-	// SceneDepth pass의 no-hit는 far depth, 즉 MaxSceneDepth 근처로 들어온다.
-	// near 0과 far MaxSceneDepth 양쪽을 모두 버린다.
+	// near 0 / far MaxSceneDepth 부근은 invalid 로 간주
 	return SceneDepth > Epsilon && SceneDepth < (MaxSceneDepth - Epsilon);
 }

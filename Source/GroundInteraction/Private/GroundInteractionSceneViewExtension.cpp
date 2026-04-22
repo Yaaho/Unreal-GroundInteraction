@@ -40,7 +40,7 @@ namespace GroundInteraction
 		return FRDGTextureDesc::Create2D(
 			TextureSize,
 			Format,
-			FClearValueBinding(FLinearColor(0.0f, -1.0f, 0.0f, 0.0f)),
+			FClearValueBinding(FLinearColor(0.0f, -32768.0f, 0.0f, 0.0f)),
 			TexCreate_ShaderResource | TexCreate_UAV | TexCreate_RenderTargetable);
 	}
 	

@@ -370,11 +370,12 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 		const int32 RTSizeY = FMath::Max(DepthRT->SizeY, 1);
 
 		DepthRT->RenderTargetFormat = RTF_RG16f;
-		DepthRT->ClearColor = FLinearColor(0.0f, -1.0f, 0.0f, 0.0f);
+		DepthRT->ClearColor = FLinearColor(0.0f, -32768.0f, 0.0f, 0.0f);
 		DepthRT->SRGB = false;
 		DepthRT->bAutoGenerateMips = false;
 		DepthRT->AddressX = TA_Clamp;
 		DepthRT->AddressY = TA_Clamp;
+		DepthRT->Filter = TF_Nearest;
 		DepthRT->InitAutoFormat(RTSizeX, RTSizeY);
 		DepthRT->UpdateResourceImmediate(true);
 	}

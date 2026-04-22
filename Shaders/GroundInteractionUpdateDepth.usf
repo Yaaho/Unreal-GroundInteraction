@@ -21,13 +21,19 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
 	float2 State = InputStateTexture.Load(int3(Pixel, 0));
 
-	// SceneDepth 캡처값.
+	if (!GI_IsValid(State))
+	{
+		State = GI_InvalidState();
+	}
+
 	const float SceneDepth = CurrentDepthTexture.Load(int3(Pixel, 0)).r;
 	
-	// 지금 위치에 프록시가 있는 경우만 Scene Depth 가 갱신된다.
+	// 현재 위치에 프록시가 있으면 새 contact로 취급.
+	// R = base depth
+	// G = fade height, contact 순간에는 0
 	if (GI_IsValidSceneDepth(SceneDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
 	{
-		State = float2(SceneDepth, SceneDepth);
+		State = float2(SceneDepth, 0.0f);
 	}
 
 	OutputStateTexture[Pixel] = State;
