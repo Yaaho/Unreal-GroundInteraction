@@ -34,4 +34,10 @@ private:
 	
 	// 현재 프레임의 StateRT 인덱스를 저장하는 변수
 	int32 CurrentStateIndex = 0;
+	
+	// Fade Update 의 누적 시간
+	float FadeUpdateAccumulatorSeconds = 0.0f;
+	
+	// Update Depth 의 누적 시간
+	float CaptureUpdateAccumulatorSeconds = 0.0f;
 };

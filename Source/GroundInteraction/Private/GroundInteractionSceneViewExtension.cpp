@@ -194,6 +194,7 @@ namespace GroundInteraction
 		FRDGTextureRef DepthTexture,
 		FRDGTextureRef FadeTexture,
 		const FGroundInteractionRenderFrameParams& FrameParams,
+		float FadeDeltaTimeSeconds,
 		float FadeRiseSpeed,
 		float FadeMaxHeight)
 	{
@@ -201,7 +202,7 @@ namespace GroundInteraction
 			GraphBuilder.AllocParameters<FGroundInteractionFadeCS::FParameters>();
 
 		PassParameters->TextureSize = FrameParams.RenderTargetSize;
-		PassParameters->DeltaTimeSeconds = FrameParams.DeltaTimeSeconds;
+		PassParameters->DeltaTimeSeconds = FadeDeltaTimeSeconds;
 		PassParameters->FadeRiseSpeed = FadeRiseSpeed;
 		PassParameters->FadeMaxHeight = FadeMaxHeight;
 		PassParameters->DepthTexture = GraphBuilder.CreateUAV(DepthTexture);
@@ -254,119 +255,125 @@ namespace GroundInteraction
 		float FadeRiseSpeed,
 		float FadeMaxHeight,
 		bool bDoMove,
+		bool bDoFade,
+		float FadeDeltaTimeSeconds,
 		int32 PrevStateIndex,
 		int32 CurrStateIndex)
 	{
-		if (!Extension || !FrameParams.bValid)
+		if (!Extension || !FrameParams.bValid || (!bDoMove && !bDoFade))
 		{
 			return;
 		}
 
 		ENQUEUE_RENDER_COMMAND(GroundInteractionPreCaptureStatePasses)(
-			[Extension, FeatureLevel, FrameParams, FadeRiseSpeed, FadeMaxHeight, bDoMove, PrevStateIndex, CurrStateIndex]
+		[Extension, FeatureLevel, FrameParams, FadeRiseSpeed, FadeMaxHeight, bDoMove, bDoFade, FadeDeltaTimeSeconds, PrevStateIndex, CurrStateIndex]
 			(FRHICommandListImmediate& RHICmdList)
+		{
+			TRefCountPtr<IPooledRenderTarget> CurrDepthRT =
+				Extension->GetStateRT_RenderThread(CurrStateIndex, StateChannel_Depth);
+
+			TRefCountPtr<IPooledRenderTarget> CurrFadeRT =
+				Extension->GetStateRT_RenderThread(CurrStateIndex, StateChannel_Fade);
+
+			TRefCountPtr<IPooledRenderTarget> PrevDepthRT;
+			TRefCountPtr<IPooledRenderTarget> PrevFadeRT;
+
+			if (bDoMove)
 			{
-				TRefCountPtr<IPooledRenderTarget> CurrDepthRT =
-					Extension->GetStateRT_RenderThread(CurrStateIndex, StateChannel_Depth);
+				PrevDepthRT = Extension->GetStateRT_RenderThread(PrevStateIndex, StateChannel_Depth);
+				PrevFadeRT = Extension->GetStateRT_RenderThread(PrevStateIndex, StateChannel_Fade);
+			}
 
-				TRefCountPtr<IPooledRenderTarget> CurrFadeRT =
-					Extension->GetStateRT_RenderThread(CurrStateIndex, StateChannel_Fade);
+			if (!CurrDepthRT.IsValid() || !CurrFadeRT.IsValid() ||
+				(bDoMove && (!PrevDepthRT.IsValid() || !PrevFadeRT.IsValid())))
+			{
+				return;
+			}
 
-				TRefCountPtr<IPooledRenderTarget> PrevDepthRT;
-				TRefCountPtr<IPooledRenderTarget> PrevFadeRT;
+			FRDGBuilder GraphBuilder(RHICmdList);
 
-				if (bDoMove)
-				{
-					PrevDepthRT = Extension->GetStateRT_RenderThread(PrevStateIndex, StateChannel_Depth);
-					PrevFadeRT = Extension->GetStateRT_RenderThread(PrevStateIndex, StateChannel_Fade);
-				}
+			FRDGTextureRef CurrDepthTexture = GraphBuilder.RegisterExternalTexture(
+				CurrDepthRT,
+				TEXT("GI_CurrDepth"));
 
-				if (!CurrDepthRT.IsValid() || !CurrFadeRT.IsValid() ||
-					(bDoMove && (!PrevDepthRT.IsValid() || !PrevFadeRT.IsValid())))
-				{
-					return;
-				}
+			FRDGTextureRef CurrFadeTexture = GraphBuilder.RegisterExternalTexture(
+				CurrFadeRT,
+				TEXT("GI_CurrFade"));
 
-				FRDGBuilder GraphBuilder(RHICmdList);
+			FRDGTextureRef PrevDepthTexture = nullptr;
+			FRDGTextureRef PrevFadeTexture = nullptr;
 
-				FRDGTextureRef CurrDepthTexture = GraphBuilder.RegisterExternalTexture(
-					CurrDepthRT,
-					TEXT("GI_CurrDepth"));
+			if (bDoMove)
+			{
+				PrevDepthTexture = GraphBuilder.RegisterExternalTexture(
+					PrevDepthRT,
+					TEXT("GI_PrevDepth"));
 
-				FRDGTextureRef CurrFadeTexture = GraphBuilder.RegisterExternalTexture(
-					CurrFadeRT,
-					TEXT("GI_CurrFade"));
+				PrevFadeTexture = GraphBuilder.RegisterExternalTexture(
+					PrevFadeRT,
+					TEXT("GI_PrevFade"));
+			}
 
-				FRDGTextureRef PrevDepthTexture = nullptr;
-				FRDGTextureRef PrevFadeTexture = nullptr;
+			if (!CurrDepthTexture || !CurrFadeTexture ||
+				(bDoMove && (!PrevDepthTexture || !PrevFadeTexture)))
+			{
+				GraphBuilder.Execute();
+				return;
+			}
 
-				if (bDoMove)
-				{
-					PrevDepthTexture = GraphBuilder.RegisterExternalTexture(
-						PrevDepthRT,
-						TEXT("GI_PrevDepth"));
+			GraphBuilder.UseInternalAccessMode(CurrDepthTexture);
+			GraphBuilder.UseInternalAccessMode(CurrFadeTexture);
 
-					PrevFadeTexture = GraphBuilder.RegisterExternalTexture(
-						PrevFadeRT,
-						TEXT("GI_PrevFade"));
-				}
+			if (PrevDepthTexture)
+			{
+				GraphBuilder.UseInternalAccessMode(PrevDepthTexture);
+			}
 
-				if (!CurrDepthTexture || !CurrFadeTexture ||
-					(bDoMove && (!PrevDepthTexture || !PrevFadeTexture)))
-				{
-					GraphBuilder.Execute();
-					return;
-				}
+			if (PrevFadeTexture)
+			{
+				GraphBuilder.UseInternalAccessMode(PrevFadeTexture);
+			}
 
-				GraphBuilder.UseInternalAccessMode(CurrDepthTexture);
-				GraphBuilder.UseInternalAccessMode(CurrFadeTexture);
-
-				if (PrevDepthTexture)
-				{
-					GraphBuilder.UseInternalAccessMode(PrevDepthTexture);
-				}
-
-				if (PrevFadeTexture)
-				{
-					GraphBuilder.UseInternalAccessMode(PrevFadeTexture);
-				}
-
-				if (bDoMove)
-				{
-					AddMovePass(
-						GraphBuilder,
-						FeatureLevel,
-						PrevDepthTexture,
-						PrevFadeTexture,
-						CurrDepthTexture,
-						CurrFadeTexture,
-						FrameParams);
-				}
-
-				AddFadePassInPlace(
+			if (bDoMove)
+			{
+				AddMovePass(
 					GraphBuilder,
 					FeatureLevel,
+					PrevDepthTexture,
+					PrevFadeTexture,
 					CurrDepthTexture,
 					CurrFadeTexture,
-					FrameParams,
-					FadeRiseSpeed,
-					FadeMaxHeight);
+					FrameParams);
+			}
 
-				GraphBuilder.UseExternalAccessMode(CurrDepthTexture, ERHIAccess::SRVMask);
-				GraphBuilder.UseExternalAccessMode(CurrFadeTexture, ERHIAccess::SRVMask);
+		if (bDoFade)
+		{
+			AddFadePassInPlace(
+				GraphBuilder,
+				FeatureLevel,
+				CurrDepthTexture,
+				CurrFadeTexture,
+				FrameParams,
+				FadeDeltaTimeSeconds,
+				FadeRiseSpeed,
+				FadeMaxHeight);
+		}
 
-				if (PrevDepthTexture)
-				{
-					GraphBuilder.UseExternalAccessMode(PrevDepthTexture, ERHIAccess::SRVMask);
-				}
+			GraphBuilder.UseExternalAccessMode(CurrDepthTexture, ERHIAccess::SRVMask);
+			GraphBuilder.UseExternalAccessMode(CurrFadeTexture, ERHIAccess::SRVMask);
 
-				if (PrevFadeTexture)
-				{
-					GraphBuilder.UseExternalAccessMode(PrevFadeTexture, ERHIAccess::SRVMask);
-				}
+			if (PrevDepthTexture)
+			{
+				GraphBuilder.UseExternalAccessMode(PrevDepthTexture, ERHIAccess::SRVMask);
+			}
 
-				GraphBuilder.Execute();
-			});
+			if (PrevFadeTexture)
+			{
+				GraphBuilder.UseExternalAccessMode(PrevFadeTexture, ERHIAccess::SRVMask);
+			}
+
+			GraphBuilder.Execute();
+		});
 	}
 
 	static void ExecuteCopyStateToOutputPass(
@@ -631,6 +638,8 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 	if (bOutputRTChanged)
 	{
 		CurrentStateIndex = 0;
+		FadeUpdateAccumulatorSeconds = 0.0f;
+		CaptureUpdateAccumulatorSeconds = 0.0f;
 		Subsystem->ResetHistory();
 	}
 
@@ -653,6 +662,56 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 	}
 
 	Subsystem->UpdateMPC(FrameParams.CaptureInfo);
+	
+	// Update rate는 현실 시간 기준으로 계산한다.
+	// 현재 BuildRenderFrameParams()의 DeltaTimeSeconds는 World time이므로 여기서는 쓰지 않는다.
+	const float DeltaRealTimeSeconds = FMath::Max(
+		InViewFamily.Time.GetDeltaRealTimeSeconds(),
+		0.0f);
+
+	// Fade tick
+	const float FadeUpdateIntervalSeconds = Settings->GetDepthFadeUpdateIntervalSeconds();
+
+	FadeUpdateAccumulatorSeconds += DeltaRealTimeSeconds;
+
+	bool bDoFade = false;
+	float FadeDeltaTimeSeconds = 0.0f;
+
+	if (FadeUpdateAccumulatorSeconds >= FadeUpdateIntervalSeconds)
+	{
+		const int32 FadeStepCount = FMath::Max(
+			FMath::FloorToInt(FadeUpdateAccumulatorSeconds / FadeUpdateIntervalSeconds),
+			1);
+
+		FadeDeltaTimeSeconds = float(FadeStepCount) * FadeUpdateIntervalSeconds;
+		FadeUpdateAccumulatorSeconds -= FadeDeltaTimeSeconds;
+		bDoFade = true;
+	}
+
+	// Capture / UpdateDepth tick
+	const float CaptureUpdateIntervalSeconds = Settings->GetDepthCaptureUpdateIntervalSeconds();
+
+	CaptureUpdateAccumulatorSeconds += DeltaRealTimeSeconds;
+
+	bool bDoCaptureUpdate = false;
+
+	if (CaptureUpdateAccumulatorSeconds >= CaptureUpdateIntervalSeconds)
+	{
+		const int32 CaptureStepCount = FMath::Max(
+			FMath::FloorToInt(CaptureUpdateAccumulatorSeconds / CaptureUpdateIntervalSeconds),
+			1);
+
+		CaptureUpdateAccumulatorSeconds -= float(CaptureStepCount) * CaptureUpdateIntervalSeconds;
+		bDoCaptureUpdate = true;
+	}
+
+	// bForceCaptureUpdate 변수 대신 기존 history 여부로 강제 capture.
+	// 첫 프레임 또는 ResetHistory() 직후에는 반드시 capture/update가 돈다.
+	if (!FrameParams.bHasPrevCaptureInfo)
+	{
+		bDoCaptureUpdate = true;
+		CaptureUpdateAccumulatorSeconds = 0.0f;
+	}
 
 	const bool bDoMove = FrameParams.bShouldMove;
 
@@ -752,22 +811,44 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 		Settings->FadeRiseSpeed,
 		Settings->FadeMaxHeight,
 		bDoMove,
+		bDoFade,
+		FadeDeltaTimeSeconds,
 		PrevStateIndex,
 		CurrStateIndex);
+	
+	
+	const bool bStateChangedBeforeCapture = bDoMove || bDoFade;
 
+	if (!bDoCaptureUpdate)
+	{
+		if (bStateChangedBeforeCapture)
+		{
+			GroundInteraction::ExecuteCopyStateToOutputPass(
+				this,
+				OutputDepthRTResource,
+				OutputFadeRTResource,
+				CurrStateIndex);
+		}
+
+		Subsystem->CommitRenderFrame(FrameParams);
+		return;
+	}
+	
 	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
 	Subsystem->BuildShowOnlyPrimitives(FrameParams.CaptureInfo, ShowOnlyPrimitives);
 
 	if (ShowOnlyPrimitives.Num() == 0)
 	{
-		GroundInteraction::ExecuteCopyStateToOutputPass(
-			this,
-			OutputDepthRTResource,
-			OutputFadeRTResource,
-			CurrStateIndex);
+		if (bStateChangedBeforeCapture)
+		{
+			GroundInteraction::ExecuteCopyStateToOutputPass(
+				this,
+				OutputDepthRTResource,
+				OutputFadeRTResource,
+				CurrStateIndex);
+		}
 
 		Subsystem->CommitRenderFrame(FrameParams);
-		return;
 		return;
 	}
 

@@ -42,6 +42,21 @@ public:
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="Render Target", meta=(ClampMin="16", UIMin="128", UIMax="2048"))
 	int32 RenderTargetSizeY = 512;
-
+	
+	// Depth fade 실행 빈도
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="Update Rate", meta=(ClampMin="1", UIMin="1", UIMax="120"))
+	int32 DepthFadeUpdateRate = 60;
+	
+	// Depth Update 실행 빈도
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="Update Rate", meta=(ClampMin="1", UIMin="1", UIMax="120"))
+	int32 DepthCaptureUpdateRate = 60;
+	
 	FIntPoint GetRenderTargetSize() const;
+	
+	float GetDepthFadeUpdateIntervalSeconds() const;
+	float GetDepthCaptureUpdateIntervalSeconds() const;
+	
+#if WITH_EDITOR
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 };
