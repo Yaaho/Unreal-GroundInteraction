@@ -96,8 +96,17 @@ public:
 		return DepthRT;
 	}
 	
+	UTextureRenderTarget2D* GetFadeRT() const
+	{
+		return FadeRT;
+	}
+	
 	// 게임 스레드에서 RT 리소스를 pass 에 넘기기 위한 함수
 	FTextureRenderTargetResource* GetDepthRTResource_GameThread() const;
+	FTextureRenderTargetResource* GetFadeRTResource_GameThread() const;
+	
+	bool ApplyOutputRenderTargetSettings_GameThread();
+	void ResetHistory();
 	
 	bool AreAssetsReady() const
 	{
@@ -114,6 +123,8 @@ private:
 	void BeginAsyncLoadAssets();
 	// 에셋 로드가 완료되면 호출되는 함수
 	void OnAssetsLoaded();
+	
+	bool InitOutputRenderTarget_GameThread(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const;
 	
 	// 캡쳐 대상 항목을 빋드하는 함수
 	void RebuildCaptureTargetInfo(UGroundInteractionTargetComponent* Target);
@@ -136,6 +147,9 @@ private:
 	// Depth 캡쳐 결과를 저장하는 렌더 타겟
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> DepthRT = nullptr;
+	
+	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> FadeRT = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CubeMesh = nullptr;

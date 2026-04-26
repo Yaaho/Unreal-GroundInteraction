@@ -1,16 +1,21 @@
 ﻿static const float GI_InvalidBaseDepth = 0.0f;
 static const float GI_InvalidFadeHeight = -32768.0f;
 
+// Invalidate 값을 반환하는 함수
 float2 GI_InvalidState()
 {
 	return float2(GI_InvalidBaseDepth, GI_InvalidFadeHeight);
 }
 
+// 값이 Invalid 한지 판별하는 함수
 bool GI_IsValid(float2 State)
 {
-	// X: absolute depth
-	// Y: fade height
 	return State.x > 0.0f && State.y >= 0.0f;
+}
+
+bool GI_IsValidState(float BaseDepth, float FadeHeight)
+{
+	return BaseDepth > 0.0f && FadeHeight >= 0.0f;
 }
 
 float GI_GetBaseDepth(float2 State)
@@ -25,12 +30,10 @@ float GI_GetFadeHeight(float2 State)
 
 float GI_GetFadeTopDepth(float2 State)
 {
-	// Fade depth는 x + y 로 재구성
 	return State.x + State.y;
 }
 
 bool GI_IsValidSceneDepth(float SceneDepth, float MaxSceneDepth, float Epsilon)
 {
-	// near 0 / far MaxSceneDepth 부근은 invalid 로 간주
 	return SceneDepth > Epsilon && SceneDepth < (MaxSceneDepth - Epsilon);
 }

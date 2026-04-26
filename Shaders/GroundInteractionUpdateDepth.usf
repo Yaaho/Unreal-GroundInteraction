@@ -1,9 +1,10 @@
 ﻿#include "/Engine/Private/Common.ush"
 #include "GroundInteractionCommon.ush"
 
-Texture2D<float2> InputStateTexture;
+RWTexture2D<float> DepthTexture;
+RWTexture2D<float> FadeTexture;
+
 Texture2D<float> CurrentDepthTexture;
-RWTexture2D<float2> OutputStateTexture;
 
 int2 TextureSize;
 float MaxSceneDepth;
@@ -19,11 +20,13 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	
 	const int2 Pixel = int2(DispatchThreadId.xy);
 
-	float2 State = InputStateTexture.Load(int3(Pixel, 0));
+	float Depth = DepthTexture[Pixel];
+	float Fade = FadeTexture[Pixel];
 
-	if (!GI_IsValid(State))
+	if (!GI_IsValidState(Depth, Fade))
 	{
-		State = GI_InvalidState();
+		Depth = GI_InvalidBaseDepth;
+		Fade = GI_InvalidFadeHeight;
 	}
 
 	const float SceneDepth = CurrentDepthTexture.Load(int3(Pixel, 0)).r;
@@ -33,8 +36,11 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	// G = fade height, contact 순간에는 0
 	if (GI_IsValidSceneDepth(SceneDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
 	{
-		State = float2(SceneDepth, 0.0f);
+		Depth = SceneDepth;
+		Fade = 0.0f;
 	}
 
-	OutputStateTexture[Pixel] = State;
+	DepthTexture[Pixel] = Depth;
+	FadeTexture[Pixel] = Fade;
 }
+

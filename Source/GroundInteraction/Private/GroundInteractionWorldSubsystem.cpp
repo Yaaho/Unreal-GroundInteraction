@@ -19,6 +19,9 @@ namespace GroundInteractionAssetPaths
 	// 플러그인에서 사용하는 기본 에셋들
 	static const FSoftObjectPath DepthRT(
 		TEXT("/GroundInteraction/RT/RT_GroundInteractionDepth.RT_GroundInteractionDepth"));
+	
+	static const FSoftObjectPath FadeRT(
+		TEXT("/GroundInteraction/RT/RT_GroundInteractionFade.RT_GroundInteractionFade"));
 
 	static const FSoftObjectPath CubeMesh(
 		TEXT("/Engine/BasicShapes/Cube.Cube"));
@@ -72,6 +75,7 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 	PrevCaptureInfo = {};
 
 	DepthRT = nullptr;
+	FadeRT = nullptr;
 	CubeMesh = nullptr;
 	SphereMesh = nullptr;
 	CylinderMesh = nullptr;
@@ -211,6 +215,8 @@ void UGroundInteractionWorldSubsystem::CommitRenderFrame(const FGroundInteractio
 }
 
 
+
+
 void UGroundInteractionWorldSubsystem::BuildShowOnlyPrimitives(
 	const FGroundInteractionCaptureInfo& CaptureInfo,
 	TSet<FPrimitiveComponentId>& OutPrimitiveIds) const
@@ -284,6 +290,46 @@ FTextureRenderTargetResource* UGroundInteractionWorldSubsystem::GetDepthRTResour
 	return DepthRT->GameThread_GetRenderTargetResource();
 }
 
+FTextureRenderTargetResource* UGroundInteractionWorldSubsystem::GetFadeRTResource_GameThread() const
+{
+	if (!FadeRT)
+	{
+		return nullptr;
+	}
+
+	return FadeRT->GameThread_GetRenderTargetResource();
+}
+
+bool UGroundInteractionWorldSubsystem::ApplyOutputRenderTargetSettings_GameThread()
+{
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+	if (!Settings || !DepthRT || !FadeRT)
+	{
+		return false;
+	}
+
+	const FIntPoint OutputRTSize = Settings->GetRenderTargetSize();
+
+	bool bChanged = false;
+
+	bChanged |= InitOutputRenderTarget_GameThread(
+		DepthRT,
+		OutputRTSize,
+		FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+
+	bChanged |= InitOutputRenderTarget_GameThread(
+		FadeRT,
+		OutputRTSize,
+		FLinearColor(-32768.0f, 0.0f, 0.0f, 0.0f));
+
+	return bChanged;
+}
+
+void UGroundInteractionWorldSubsystem::ResetHistory()
+{
+	PrevCaptureInfo = {};
+	bHasPrevCaptureInfo = false;
+}
 
 void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 {
@@ -297,6 +343,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	AssetsToLoad.Reserve(5);
 
 	AssetsToLoad.Add(GroundInteractionAssetPaths::DepthRT);
+	AssetsToLoad.Add(GroundInteractionAssetPaths::FadeRT);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::CubeMesh);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::SphereMesh);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::CylinderMesh);
@@ -323,6 +370,12 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	if (!DepthRT)
 	{
 		DepthRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::DepthRT.TryLoad());
+	}
+
+	FadeRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::FadeRT.ResolveObject());
+	if (!FadeRT)
+	{
+		FadeRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::FadeRT.TryLoad());
 	}
 
 	CubeMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::CubeMesh.ResolveObject());
@@ -354,6 +407,7 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 
 	bAssetsReady =
 		(DepthRT != nullptr) &&
+		(FadeRT != nullptr) &&
 		(CubeMesh != nullptr) &&
 		(SphereMesh != nullptr) &&
 		(CylinderMesh != nullptr) &&
@@ -364,22 +418,9 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 		return;
 	}
 	
-	if (DepthRT)
-	{
-		const int32 RTSizeX = FMath::Max(DepthRT->SizeX, 1);
-		const int32 RTSizeY = FMath::Max(DepthRT->SizeY, 1);
+	ApplyOutputRenderTargetSettings_GameThread();
+	ResetHistory();
 
-		DepthRT->RenderTargetFormat = RTF_RG16f;
-		DepthRT->ClearColor = FLinearColor(0.0f, -32768.0f, 0.0f, 0.0f);
-		DepthRT->SRGB = false;
-		DepthRT->bAutoGenerateMips = false;
-		DepthRT->AddressX = TA_Clamp;
-		DepthRT->AddressY = TA_Clamp;
-		DepthRT->Filter = TF_Nearest;
-		DepthRT->InitAutoFormat(RTSizeX, RTSizeY);
-		DepthRT->UpdateResourceImmediate(true);
-	}
-	
 	// 에셋 로드 완료 시 엔트리 전부 리빌드
 	for (TPair<TObjectPtr<UGroundInteractionTargetComponent>, FGroundInteractionTargetInfo>& Pair : GroundInteractionTargets)
 	{
@@ -390,6 +431,50 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	}
 }
 
+bool UGroundInteractionWorldSubsystem::InitOutputRenderTarget_GameThread(
+	UTextureRenderTarget2D* RenderTarget,
+	const FIntPoint& Size,
+	const FLinearColor& ClearColor) const
+{
+	if (!RenderTarget)
+	{
+		return false;
+	}
+
+	const FIntPoint SafeSize(
+		FMath::Max(Size.X, 16),
+		FMath::Max(Size.Y, 16));
+
+	const bool bNeedsInit =
+		RenderTarget->SizeX != SafeSize.X ||
+		RenderTarget->SizeY != SafeSize.Y ||
+		RenderTarget->RenderTargetFormat != RTF_R16f ||
+		RenderTarget->SRGB ||
+		RenderTarget->bAutoGenerateMips ||
+		!RenderTarget->bCanCreateUAV ||
+		RenderTarget->AddressX != TA_Clamp ||
+		RenderTarget->AddressY != TA_Clamp ||
+		RenderTarget->Filter != TF_Nearest ||
+		!RenderTarget->ClearColor.Equals(ClearColor);
+
+	if (!bNeedsInit)
+	{
+		return false;
+	}
+
+	RenderTarget->RenderTargetFormat = RTF_R16f;
+	RenderTarget->ClearColor = ClearColor;
+	RenderTarget->SRGB = false;
+	RenderTarget->bAutoGenerateMips = false;
+	RenderTarget->bCanCreateUAV = true;
+	RenderTarget->AddressX = TA_Clamp;
+	RenderTarget->AddressY = TA_Clamp;
+	RenderTarget->Filter = TF_Nearest;
+	RenderTarget->InitAutoFormat(SafeSize.X, SafeSize.Y);
+	RenderTarget->UpdateResourceImmediate(true);
+
+	return true;
+}
 
 void UGroundInteractionWorldSubsystem::RebuildCaptureTargetInfo(UGroundInteractionTargetComponent* Target)
 {

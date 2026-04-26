@@ -1,8 +1,13 @@
 ﻿#include "/Engine/Private/Common.ush"
 #include "GroundInteractionCommon.ush"
 
-Texture2D<float2> InputStateTexture;
-RWTexture2D<float2> OutputStateTexture;
+// 인풋: 이전 프레임의 Depth, Fade 텍스쳐
+Texture2D<float> InputDepthTexture;
+Texture2D<float> InputFadeTexture;
+
+// 아웃풋: 현재 프레임의 Depth, Fade 텍스쳐
+RWTexture2D<float> OutputDepthTexture;
+RWTexture2D<float> OutputFadeTexture;
 
 int2 TextureSize;
 int2 ScrollPixels;
@@ -21,37 +26,45 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	}
 
 	const int2 DstPixel = int2(DispatchThreadId.xy);
-	float2 Result = GI_InvalidState();
+
+	float OutDepth = GI_InvalidBaseDepth;
+	float OutFade = GI_InvalidFadeHeight;
 
 	if (bHasHistory != 0)
 	{
+		// 복사해야하는 픽셀 위치
 		const int2 SrcPixel = DstPixel + ScrollPixels;
 
+		// 복사해야 하는 픽셀 위치가 유효하면
 		if (SrcPixel.x >= 0 && SrcPixel.y >= 0 &&
 			SrcPixel.x < TextureSize.x && SrcPixel.y < TextureSize.y)
 		{
-			const float2 PrevState = InputStateTexture.Load(int3(SrcPixel, 0));
+			const float PrevDepth = InputDepthTexture.Load(int3(SrcPixel, 0)).r;
+			const float PrevFade = InputFadeTexture.Load(int3(SrcPixel, 0)).r;
 
-			if (GI_IsValid(PrevState))
+			// 복사해와야 하는 픽셀 이 Valid 한 상태이면
+			if (GI_IsValidState(PrevDepth, PrevFade))
 			{
 				const float RebaseDeltaZ =
 					PrevCaptureViewOriginZ - CurrentCaptureViewOriginZ;
-				
-				// Move 시 X 는 절대 깊이이므로 Rebase 하지만
-				// Y 는 상대 높이이므로 rebase 필요 없음
-				Result = float2(
-					PrevState.x + RebaseDeltaZ,
-					PrevState.y);
 
-				// base depth가 capture depth range를 벗어나면 invalid 처리
-				if (!GI_IsValid(Result) ||
-					!GI_IsValidSceneDepth(Result.x, MaxSceneDepth, SceneDepthInvalidEpsilon))
+				// Depth 채널은 Rebase 한다.
+				OutDepth = PrevDepth + RebaseDeltaZ;
+				// Fade 채널은 Depth 채널에 대한 상대 위치이니 Rebase 할 필요 없다.
+				OutFade = PrevFade;
+				
+				// Move 한 값이 Invalid 하면 Invalidate 한다.
+				if (!GI_IsValidState(OutDepth, OutFade) ||
+					!GI_IsValidSceneDepth(OutDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
 				{
-					Result = GI_InvalidState();
+					OutDepth = GI_InvalidBaseDepth;
+					OutFade = GI_InvalidFadeHeight;
 				}
 			}
 		}
 	}
 
-	OutputStateTexture[DstPixel] = Result;
+	
+	OutputDepthTexture[DstPixel] = OutDepth;
+	OutputFadeTexture[DstPixel] = OutFade;
 }

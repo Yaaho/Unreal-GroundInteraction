@@ -36,4 +36,12 @@ public:
 
 	UPROPERTY(EditAnywhere, Config, Category="Fade", meta=(ClampMin="0.0"))
 	float FadeMaxHeight = 120.0f; // cm
+	
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="Render Target", meta=(ClampMin="16", UIMin="128", UIMax="2048"))
+	int32 RenderTargetSizeX = 512;
+
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="Render Target", meta=(ClampMin="16", UIMin="128", UIMax="2048"))
+	int32 RenderTargetSizeY = 512;
+
+	FIntPoint GetRenderTargetSize() const;
 };

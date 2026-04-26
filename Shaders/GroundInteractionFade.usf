@@ -1,8 +1,8 @@
 ﻿#include "/Engine/Private/Common.ush"
 #include "GroundInteractionCommon.ush"
 
-Texture2D<float2> InputStateTexture;
-RWTexture2D<float2> OutputStateTexture;
+RWTexture2D<float> DepthTexture;
+RWTexture2D<float> FadeTexture;
 
 int2 TextureSize;
 float DeltaTimeSeconds;
@@ -19,29 +19,35 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
 	const int2 Pixel = int2(DispatchThreadId.xy);
 
-	float2 State = InputStateTexture.Load(int3(Pixel, 0));
-
-	if (!GI_IsValid(State))
+	const float Depth = DepthTexture[Pixel];
+	float Fade = FadeTexture[Pixel];
+	
+	// Depth Value 와 Fade Value 가 Valid 하지 않다면 Invalidate
+	if (!GI_IsValidState(Depth, Fade))
 	{
-		OutputStateTexture[Pixel] = GI_InvalidState();
+		DepthTexture[Pixel] = GI_InvalidBaseDepth;
+		FadeTexture[Pixel] = GI_InvalidFadeHeight;
 		return;
 	}
-
+	
 	if (FadeMaxHeight <= 0.0f)
 	{
-		OutputStateTexture[Pixel] = GI_InvalidState();
-		return;
-	}
-	
-	// Y 값 위로 Fade
-	State.y += max(FadeRiseSpeed, 0.0f) * max(DeltaTimeSeconds, 0.0f);
-	
-	// Y 값이 FadeMaxHeight 보다 커지면 invalidate 함
-	if (State.y >= FadeMaxHeight)
-	{
-		OutputStateTexture[Pixel] = GI_InvalidState();
+		DepthTexture[Pixel] = GI_InvalidBaseDepth;
+		FadeTexture[Pixel] = GI_InvalidFadeHeight;
 		return;
 	}
 
-	OutputStateTexture[Pixel] = State;
+	// Fade 진행
+	Fade += max(FadeRiseSpeed, 0.0f) * max(DeltaTimeSeconds, 0.0f);
+
+	// Fade 된 값이 FadeMaxHeight 보다 커졌으면 Invalidate
+	if (Fade >= FadeMaxHeight)
+	{
+		DepthTexture[Pixel] = GI_InvalidBaseDepth;
+		FadeTexture[Pixel] = GI_InvalidFadeHeight;
+		return;
+	}
+
+	// 정상 fade 진행 중에는 depth는 건드리지 않는다.
+	FadeTexture[Pixel] = Fade;
 }

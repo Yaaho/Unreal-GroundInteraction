@@ -16,3 +16,10 @@ FName UGroundInteractionSettings::GetCategoryName() const
 {
 	return TEXT("Plugins");
 }
+
+FIntPoint UGroundInteractionSettings::GetRenderTargetSize() const
+{
+	return FIntPoint(
+		FMath::Max(RenderTargetSizeX, 16),
+		FMath::Max(RenderTargetSizeY, 16));
+}
