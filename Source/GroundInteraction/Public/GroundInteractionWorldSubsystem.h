@@ -1,4 +1,4 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -6,66 +6,12 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "GroundInteractionWorldSubsystem.generated.h"
 
-
 class FGroundInteractionSceneViewExtension;
+class UGroundInteractionRendererComponent;
 class UGroundInteractionTargetComponent;
+class FSceneViewFamily;
 struct FStreamableHandle;
 
-// 현재 캡쳐 영역의 정보를 저장하는 구조체
-USTRUCT()
-struct FGroundInteractionCaptureInfo
-{
-	GENERATED_BODY()
-
-	UPROPERTY()
-	bool bValid = false;
-	
-	// 캡처 중심 위치
-	UPROPERTY()
-	FVector CenterWS = FVector::ZeroVector;
-	
-	// 캡쳐 프러스텀의 바운드
-	UPROPERTY()
-	FVector ExtentWS = FVector(1000.0f, 1000.0f, 1000.0f);
-	
-	// 캡쳐 View 의 위치
-	FVector GetCaptureOriginWS() const
-	{
-		return FVector(CenterWS.X, CenterWS.Y, CenterWS.Z - ExtentWS.Z);
-	}
-};
-
-// UGroundInteractionTargetComponent 의 스켈레탈 매시와 거가 붙은 인터랙션 프록시들을 저장하는 구조체
-USTRUCT()
-struct FGroundInteractionTargetInfo
-{
-	GENERATED_BODY()
-
-	UPROPERTY()
-	TObjectPtr<USkeletalMeshComponent> Skeletal = nullptr;
-
-	UPROPERTY()
-	TArray<TObjectPtr<UStaticMeshComponent>> InteractionBodies;
-};
-
-struct FGroundInteractionRenderFrameParams
-{
-	bool bValid = false;
-	bool bHasPrevCaptureInfo = false;
-	bool bShouldMove = false;
-
-	FGroundInteractionCaptureInfo CaptureInfo;
-	FVector PrevCaptureOriginWS = FVector::ZeroVector;
-
-	FIntPoint RenderTargetSize = FIntPoint::ZeroValue;
-	FIntPoint ScrollPixels = FIntPoint::ZeroValue;
-
-	float DeltaTimeSeconds = 0.0f;
-};
-
-/**
- * 
- */
 UCLASS()
 class GROUNDINTERACTION_API UGroundInteractionWorldSubsystem : public UWorldSubsystem
 {
@@ -78,76 +24,76 @@ public:
 	void RegisterTarget(UGroundInteractionTargetComponent* Target);
 	void UnregisterTarget(UGroundInteractionTargetComponent* Target);
 	
-	bool BuildRenderFrameParams(
-		const FSceneView* PrimaryView,
-		const FIntPoint& RTSize,
-		FGroundInteractionRenderFrameParams& OutParams) const;
-
-	void CommitRenderFrame(const FGroundInteractionRenderFrameParams& FrameParams);
-
-	void BuildShowOnlyPrimitives(
-		const FGroundInteractionCaptureInfo& CaptureInfo,
-		TSet<FPrimitiveComponentId>& OutPrimitiveIds) const;
-
-	void UpdateMPC(const FGroundInteractionCaptureInfo& Region) const;
+	void RegisterInteractionPrimitive(UPrimitiveComponent* Primitive);
+	void UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive);
 	
+	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& GetInteractionPrimitives() const
+	{
+		return InteractionPrimitives;
+	}
+	
+	// BeginRenderViewFamily 에서 해당 함수가 호출됨
+	// 게임스레드에서 렌더 컴포넌트를 업데이트하는 함수
+	void PrepareRendererFrame_GameThread(
+		FSceneViewFamily& InViewFamily);
+
 	UTextureRenderTarget2D* GetDepthRT() const
 	{
 		return DepthRT;
 	}
-	
+
 	UTextureRenderTarget2D* GetFadeRT() const
 	{
 		return FadeRT;
 	}
-	
-	// 게임 스레드에서 RT 리소스를 pass 에 넘기기 위한 함수
-	FTextureRenderTargetResource* GetDepthRTResource_GameThread() const;
-	FTextureRenderTargetResource* GetFadeRTResource_GameThread() const;
-	
-	bool ApplyOutputRenderTargetSettings_GameThread();
-	void ResetHistory();
-	
+
+	UStaticMesh* GetCubeMesh() const
+	{
+		return CubeMesh;
+	}
+
+	UStaticMesh* GetSphereMesh() const
+	{
+		return SphereMesh;
+	}
+
+	UStaticMesh* GetCylinderMesh() const
+	{
+		return CylinderMesh;
+	}
+
+	UMaterialParameterCollection* GetMaterialParameterCollection() const
+	{
+		return MaterialParameterCollection;
+	}
+
 	bool AreAssetsReady() const
 	{
 		return bAssetsReady;
 	}
-
+	
 	const TSharedPtr<FGroundInteractionSceneViewExtension, ESPMode::ThreadSafe>& GetSceneViewExtension() const
 	{
 		return SceneViewExtension;
 	}
 
 private:
-	// 서브시스템 초기화 시점에 필요한 에셋들을 비동기 로드 요청하는 함수
 	void BeginAsyncLoadAssets();
-	// 에셋 로드가 완료되면 호출되는 함수
 	void OnAssetsLoaded();
-	
-	bool InitOutputRenderTarget_GameThread(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const;
-	
-	// 캡쳐 대상 항목을 빋드하는 함수
-	void RebuildCaptureTargetInfo(UGroundInteractionTargetComponent* Target);
-	void DestroyCaptureTargetInfo(UGroundInteractionTargetComponent* Target);
 
-	void BuildProxies(FGroundInteractionTargetInfo& TargetInfo, USkeletalMeshComponent* SkeletalMeshComp);
-
-	UStaticMeshComponent* CreateProxy(
-		AActor* OwnerActor,
-		USkeletalMeshComponent* Parent,
-		const FName BoneName,
-		UStaticMesh* StaticMesh,
-		const FTransform& RelativeTransform,
-		const FVector& DesiredWorldSize);
+	void CreateOrUpdateRendererComponent();
+	void DestroyRendererComponent();
 
 private:
 	UPROPERTY(Transient)
-	TMap<TObjectPtr<UGroundInteractionTargetComponent>, FGroundInteractionTargetInfo> GroundInteractionTargets;
-	
-	// Depth 캡쳐 결과를 저장하는 렌더 타겟
+	TArray<TWeakObjectPtr<UGroundInteractionTargetComponent>> RegisteredTargets;
+
+	UPROPERTY(Transient)
+	TArray<TWeakObjectPtr<UPrimitiveComponent>> InteractionPrimitives;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> DepthRT = nullptr;
-	
+
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> FadeRT = nullptr;
 
@@ -163,11 +109,13 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialParameterCollection> MaterialParameterCollection = nullptr;
 
-	// 에셋 로드 완료 여부
+	UPROPERTY(Transient)
+	TObjectPtr<AActor> RendererActor = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UGroundInteractionRendererComponent> RendererComponent = nullptr;
+
 	bool bAssetsReady = false;
-	
-	FGroundInteractionCaptureInfo PrevCaptureInfo;
-	bool bHasPrevCaptureInfo = false;
 
 	TSharedPtr<FStreamableHandle> AssetLoadHandle;
 	TSharedPtr<FGroundInteractionSceneViewExtension, ESPMode::ThreadSafe> SceneViewExtension;

@@ -9,7 +9,7 @@ Texture2D<float> InputFadeTexture;
 RWTexture2D<float> OutputDepthTexture;
 RWTexture2D<float> OutputFadeTexture;
 
-int2 TextureSize;
+int2 NumCells;
 int2 ScrollPixels;
 float PrevCaptureViewOriginZ;
 float CurrentCaptureViewOriginZ;
@@ -17,10 +17,10 @@ float MaxSceneDepth;
 float SceneDepthInvalidEpsilon;
 uint bHasHistory;
 
-[numthreads(8, 8, 1)]
+[numthreads(GI_THREADGROUP_SIZE_X, GI_THREADGROUP_SIZE_Y, GI_THREADGROUP_SIZE_Z)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
-	if (DispatchThreadId.x >= TextureSize.x || DispatchThreadId.y >= TextureSize.y)
+	if (DispatchThreadId.x >= NumCells.x || DispatchThreadId.y >= NumCells.y)
 	{
 		return;
 	}
@@ -32,17 +32,17 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
 	if (bHasHistory != 0)
 	{
-		// 복사해야하는 픽셀 위치
+		// 복사해야 하는 픽셀 위치
 		const int2 SrcPixel = DstPixel + ScrollPixels;
 
 		// 복사해야 하는 픽셀 위치가 유효하면
 		if (SrcPixel.x >= 0 && SrcPixel.y >= 0 &&
-			SrcPixel.x < TextureSize.x && SrcPixel.y < TextureSize.y)
+			SrcPixel.x < NumCells.x && SrcPixel.y < NumCells.y)
 		{
 			const float PrevDepth = InputDepthTexture.Load(int3(SrcPixel, 0)).r;
 			const float PrevFade = InputFadeTexture.Load(int3(SrcPixel, 0)).r;
 
-			// 복사해와야 하는 픽셀 이 Valid 한 상태이면
+			// 복사해와야 하는 픽셀이 Valid 한 상태이면
 			if (GI_IsValidState(PrevDepth, PrevFade))
 			{
 				const float RebaseDeltaZ =
@@ -50,9 +50,10 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 
 				// Depth 채널은 Rebase 한다.
 				OutDepth = PrevDepth + RebaseDeltaZ;
+
 				// Fade 채널은 Depth 채널에 대한 상대 위치이니 Rebase 할 필요 없다.
 				OutFade = PrevFade;
-				
+
 				// Move 한 값이 Invalid 하면 Invalidate 한다.
 				if (!GI_IsValidState(OutDepth, OutFade) ||
 					!GI_IsValidSceneDepth(OutDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
@@ -64,7 +65,6 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		}
 	}
 
-	
 	OutputDepthTexture[DstPixel] = OutDepth;
 	OutputFadeTexture[DstPixel] = OutFade;
 }

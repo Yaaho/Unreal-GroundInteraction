@@ -6,6 +6,7 @@
 #include "Components/ActorComponent.h"
 #include "GroundInteractionTargetComponent.generated.h"
 
+class UGroundInteractionWorldSubsystem;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class GROUNDINTERACTION_API UGroundInteractionTargetComponent : public UActorComponent
@@ -22,8 +23,36 @@ public:
 #endif
 
 	USkeletalMeshComponent* ResolveSourceSkeletalMesh() const;
-	
+
+	void RebuildCaptureTargetInfo();
+	void DestroyCaptureTargetInfo();
+
+	const TArray<TObjectPtr<UStaticMeshComponent>>& GetInteractionBodies() const
+	{
+		return InteractionBodies;
+	}
+
 private:
 	void RegisterToSubsystem();
 	void UnregisterFromSubsystem();
+
+	void BuildProxies(
+		UGroundInteractionWorldSubsystem* Subsystem,
+		USkeletalMeshComponent* SkeletalMeshComp);
+
+	UStaticMeshComponent* CreateProxy(
+		UGroundInteractionWorldSubsystem* Subsystem,
+		AActor* OwnerActor,
+		USkeletalMeshComponent* Parent,
+		const FName BoneName,
+		UStaticMesh* StaticMesh,
+		const FTransform& RelativeTransform,
+		const FVector& DesiredWorldSize);
+
+private:
+	UPROPERTY(Transient)
+	TObjectPtr<USkeletalMeshComponent> SourceSkeletalMesh = nullptr;
+
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UStaticMeshComponent>> InteractionBodies;
 };

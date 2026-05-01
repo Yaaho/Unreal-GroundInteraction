@@ -1,16 +1,15 @@
-﻿// Fill out your copyright notice in the Description page of Project Settings.
-
+// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GroundInteractionWorldSubsystem.h"
 #include "GroundInteractionSceneViewExtension.h"
 #include "GroundInteractionSettings.h"
+#include "GroundInteractionRendererComponent.h"
 #include "GroundInteractionTargetComponent.h"
+
+#include "Components/PrimitiveComponent.h"
 
 #include "Engine/TextureRenderTarget2D.h"
 #include "Materials/MaterialParameterCollection.h"
-#include "Kismet/KismetMaterialLibrary.h"
-#include "PhysicsEngine/SkeletalBodySetup.h"
-#include "PhysicsEngine/PhysicsAsset.h"
 #include "Engine/AssetManager.h"
 #include "Engine/StreamableManager.h"
 
@@ -34,45 +33,32 @@ namespace GroundInteractionAssetPaths
 		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
 }
 
-namespace GroundInteraction
-{
-	static FVector2D SnapXYToGrid(const FVector2D& XY, const FVector2D& UnitsPerPixel)
-	{
-		return FVector2D(
-			(FMath::FloorToDouble(XY.X / UnitsPerPixel.X) + 0.5) * UnitsPerPixel.X,
-			(FMath::FloorToDouble(XY.Y / UnitsPerPixel.Y) + 0.5) * UnitsPerPixel.Y);
-	}
-}
-
 void UGroundInteractionWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 {
 	Super::Initialize(Collection);
-	
-	// SVE 생성
-	SceneViewExtension = FSceneViewExtensions::NewExtension<FGroundInteractionSceneViewExtension>(this, GetWorld());
-	
-	// 플러그인 에셋들 비동기 로드 시작
+
+	SceneViewExtension =
+		FSceneViewExtensions::NewExtension<FGroundInteractionSceneViewExtension>(this, GetWorld());
+
 	BeginAsyncLoadAssets();
 }
 
 void UGroundInteractionWorldSubsystem::Deinitialize()
 {
-	for (TPair<TObjectPtr<UGroundInteractionTargetComponent>, FGroundInteractionTargetInfo>& Pair : GroundInteractionTargets)
+	DestroyRendererComponent();
+
+	for (const TWeakObjectPtr<UGroundInteractionTargetComponent>& TargetWeak : RegisteredTargets)
 	{
-		for (UStaticMeshComponent* ProxyComp : Pair.Value.InteractionBodies)
+		if (UGroundInteractionTargetComponent* Target = TargetWeak.Get())
 		{
-			if (IsValid(ProxyComp))
-			{
-				ProxyComp->DestroyComponent();
-			}
+			Target->DestroyCaptureTargetInfo();
 		}
 	}
 
-	GroundInteractionTargets.Empty();
+	RegisteredTargets.Empty();
+	InteractionPrimitives.Empty();
 
 	bAssetsReady = false;
-	bHasPrevCaptureInfo = false;
-	PrevCaptureInfo = {};
 
 	DepthRT = nullptr;
 	FadeRT = nullptr;
@@ -101,234 +87,59 @@ void UGroundInteractionWorldSubsystem::RegisterTarget(UGroundInteractionTargetCo
 	{
 		return;
 	}
-	
-	// 프록시 TMap 에 Target 을 add 함
-	GroundInteractionTargets.FindOrAdd(Target);
-	
-	// 아직 에셋이 로드되기 전이면 엔트리를 빌드하지 않음
-	if (!bAssetsReady)
-	{
-		return;
-	}
 
-	RebuildCaptureTargetInfo(Target);
+	RegisteredTargets.AddUnique(Target);
+
+	if (bAssetsReady)
+	{
+		Target->RebuildCaptureTargetInfo();
+	}
 }
 
 void UGroundInteractionWorldSubsystem::UnregisterTarget(UGroundInteractionTargetComponent* Target)
 {
-	if (!IsValid(Target))
+	if (!Target)
 	{
 		return;
 	}
 
-	DestroyCaptureTargetInfo(Target);
+	RegisteredTargets.Remove(Target);
 }
 
-bool UGroundInteractionWorldSubsystem::BuildRenderFrameParams(
-	const FSceneView* PrimaryView,
-	const FIntPoint& RTSize,
-	FGroundInteractionRenderFrameParams& OutParams) const
+void UGroundInteractionWorldSubsystem::RegisterInteractionPrimitive(UPrimitiveComponent* Primitive)
 {
-	OutParams = {};
-
-	if (!PrimaryView || RTSize.X <= 0 || RTSize.Y <= 0)
-	{
-		return false;
-	}
-
-	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
-	if (!Settings)
-	{
-		return false;
-	}
-
-	const FVector CaptureExtent(
-		FMath::Max(Settings->CaptureWorldExtent.X, 1.0f),
-		FMath::Max(Settings->CaptureWorldExtent.Y, 1.0f),
-		FMath::Max(Settings->CaptureWorldExtent.Z, 1.0f));
-
-	// XY 스냅 단위: CaptureWorldExtent는 half extent이므로 실제 크기는 * 2.
-	const FVector2D UnitsPerPixel(
-		CaptureExtent.X * 2.0f / float(RTSize.X),
-		CaptureExtent.Y * 2.0f / float(RTSize.Y));
-
-	const float CaptureSnapStep = FMath::Max3(
-		UnitsPerPixel.X,
-		UnitsPerPixel.Y,
-		1.0);
-
-	const FVector2D SnappedXY = GroundInteraction::SnapXYToGrid(
-		FVector2D(PrimaryView->ViewLocation.X, PrimaryView->ViewLocation.Y),
-		UnitsPerPixel);
-
-	const float SnappedZ =
-		(FMath::FloorToDouble(PrimaryView->ViewLocation.Z / CaptureSnapStep) + 0.5) * CaptureSnapStep;
-
-	OutParams.bValid = true;
-	OutParams.RenderTargetSize = RTSize;
-
-	OutParams.CaptureInfo.bValid = true;
-	OutParams.CaptureInfo.CenterWS = FVector(
-		SnappedXY.X,
-		SnappedXY.Y,
-		SnappedZ);
-
-	OutParams.CaptureInfo.ExtentWS = CaptureExtent;
-
-	const FVector CurrentCaptureOriginWS = OutParams.CaptureInfo.GetCaptureOriginWS();
-
-	OutParams.bHasPrevCaptureInfo = bHasPrevCaptureInfo;
-	OutParams.PrevCaptureOriginWS =
-		bHasPrevCaptureInfo
-			? PrevCaptureInfo.GetCaptureOriginWS()
-			: CurrentCaptureOriginWS;
-
-	if (bHasPrevCaptureInfo)
-	{
-		OutParams.ScrollPixels.X = FMath::RoundToInt(
-			(OutParams.CaptureInfo.CenterWS.X - PrevCaptureInfo.CenterWS.X) / UnitsPerPixel.X);
-
-		OutParams.ScrollPixels.Y = -FMath::RoundToInt(
-			(OutParams.CaptureInfo.CenterWS.Y - PrevCaptureInfo.CenterWS.Y) / UnitsPerPixel.Y);
-	}
-	
-	// 스냅된 위치가 바뀌었을 때만 Move 패스 실행
-	OutParams.bShouldMove = !CurrentCaptureOriginWS.Equals(OutParams.PrevCaptureOriginWS, KINDA_SMALL_NUMBER);
-
-	OutParams.DeltaTimeSeconds =
-		PrimaryView->Family
-			? PrimaryView->Family->Time.GetDeltaWorldTimeSeconds()
-			: (GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.0f);
-
-	return true;
-}
-
-void UGroundInteractionWorldSubsystem::CommitRenderFrame(const FGroundInteractionRenderFrameParams& FrameParams)
-{
-	if (!FrameParams.bValid || !FrameParams.CaptureInfo.bValid)
+	if (!IsValid(Primitive))
 	{
 		return;
 	}
 
-	PrevCaptureInfo = FrameParams.CaptureInfo;
-	bHasPrevCaptureInfo = true;
+	InteractionPrimitives.AddUnique(Primitive);
 }
 
-
-
-
-void UGroundInteractionWorldSubsystem::BuildShowOnlyPrimitives(
-	const FGroundInteractionCaptureInfo& CaptureInfo,
-	TSet<FPrimitiveComponentId>& OutPrimitiveIds) const
+void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive)
 {
-	OutPrimitiveIds.Reset();
-
-	if (!bAssetsReady || !CaptureInfo.bValid)
+	if (!Primitive)
 	{
 		return;
 	}
 
-	const FBox CaptureBox(
-		CaptureInfo.CenterWS - CaptureInfo.ExtentWS,
-		CaptureInfo.CenterWS + CaptureInfo.ExtentWS);
-
-	for (const TPair<TObjectPtr<UGroundInteractionTargetComponent>, FGroundInteractionTargetInfo>& Pair : GroundInteractionTargets)
-	{
-		for (UStaticMeshComponent* ProxyComp : Pair.Value.InteractionBodies)
-		{
-			if (!IsValid(ProxyComp) || !ProxyComp->IsRegistered())
-			{
-				continue;
-			}
-
-			const FBox ProxyBox = ProxyComp->Bounds.GetBox();
-			if (ProxyBox.Intersect(CaptureBox))
-			{
-				OutPrimitiveIds.Add(ProxyComp->GetPrimitiveSceneId());
-			}
-		}
-	}
+	InteractionPrimitives.Remove(Primitive);
 }
 
-void UGroundInteractionWorldSubsystem::UpdateMPC(const FGroundInteractionCaptureInfo& Region) const
+void UGroundInteractionWorldSubsystem::PrepareRendererFrame_GameThread(
+	FSceneViewFamily& InViewFamily)
 {
-	if (!GetWorld() || !MaterialParameterCollection)
+	check(IsInGameThread());
+
+	if (!bAssetsReady ||
+		!RendererComponent)
 	{
 		return;
 	}
 
-	const FVector CaptureOriginWS = Region.GetCaptureOriginWS();
-	
-	// X, Y 는 중심 위치
-	// Z 는 캡쳐의 Bottom Oigin 이다.
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("GI_CaptureOriginWS")),
-		FLinearColor(CaptureOriginWS.X, CaptureOriginWS.Y, CaptureOriginWS.Z, 0.0f));
-
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("GI_CaptureExtentWS")),
-		FLinearColor(Region.ExtentWS.X, Region.ExtentWS.Y, Region.ExtentWS.Z, 0.0f));
-
-	UKismetMaterialLibrary::SetScalarParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("GI_CaptureValid")),
-		Region.bValid ? 1.0f : 0.0f);
-}
-
-FTextureRenderTargetResource* UGroundInteractionWorldSubsystem::GetDepthRTResource_GameThread() const
-{
-	if (!DepthRT)
-	{
-		return nullptr;
-	}
-
-	return DepthRT->GameThread_GetRenderTargetResource();
-}
-
-FTextureRenderTargetResource* UGroundInteractionWorldSubsystem::GetFadeRTResource_GameThread() const
-{
-	if (!FadeRT)
-	{
-		return nullptr;
-	}
-
-	return FadeRT->GameThread_GetRenderTargetResource();
-}
-
-bool UGroundInteractionWorldSubsystem::ApplyOutputRenderTargetSettings_GameThread()
-{
-	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
-	if (!Settings || !DepthRT || !FadeRT)
-	{
-		return false;
-	}
-
-	const FIntPoint OutputRTSize = Settings->GetRenderTargetSize();
-
-	bool bChanged = false;
-
-	bChanged |= InitOutputRenderTarget_GameThread(
-		DepthRT,
-		OutputRTSize,
-		FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-
-	bChanged |= InitOutputRenderTarget_GameThread(
-		FadeRT,
-		OutputRTSize,
-		FLinearColor(-32768.0f, 0.0f, 0.0f, 0.0f));
-
-	return bChanged;
-}
-
-void UGroundInteractionWorldSubsystem::ResetHistory()
-{
-	PrevCaptureInfo = {};
-	bHasPrevCaptureInfo = false;
+	RendererComponent->PrepareFrame_GameThread(
+		this,
+		InViewFamily);
 }
 
 void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
@@ -340,7 +151,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	}
 
 	TArray<FSoftObjectPath> AssetsToLoad;
-	AssetsToLoad.Reserve(5);
+	AssetsToLoad.Reserve(6);
 
 	AssetsToLoad.Add(GroundInteractionAssetPaths::DepthRT);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::FadeRT);
@@ -352,7 +163,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	{
 		AssetsToLoad.Add(Settings->MaterialParameterCollection.ToSoftObjectPath());
 	}
-	
+
 	AssetLoadHandle = UAssetManager::GetStreamableManager().RequestAsyncLoad(
 		AssetsToLoad,
 		FStreamableDelegate::CreateUObject(this, &UGroundInteractionWorldSubsystem::OnAssetsLoaded));
@@ -399,6 +210,7 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	if (!Settings->MaterialParameterCollection.IsNull())
 	{
 		MaterialParameterCollection = Settings->MaterialParameterCollection.Get();
+
 		if (!MaterialParameterCollection)
 		{
 			MaterialParameterCollection = Settings->MaterialParameterCollection.LoadSynchronous();
@@ -406,276 +218,97 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	}
 
 	bAssetsReady =
-		(DepthRT != nullptr) &&
-		(FadeRT != nullptr) &&
-		(CubeMesh != nullptr) &&
-		(SphereMesh != nullptr) &&
-		(CylinderMesh != nullptr) &&
-		(MaterialParameterCollection != nullptr);
+		DepthRT != nullptr &&
+		FadeRT != nullptr &&
+		CubeMesh != nullptr &&
+		SphereMesh != nullptr &&
+		CylinderMesh != nullptr &&
+		MaterialParameterCollection != nullptr;
 
 	if (!bAssetsReady)
 	{
 		return;
 	}
-	
-	ApplyOutputRenderTargetSettings_GameThread();
-	ResetHistory();
 
-	// 에셋 로드 완료 시 엔트리 전부 리빌드
-	for (TPair<TObjectPtr<UGroundInteractionTargetComponent>, FGroundInteractionTargetInfo>& Pair : GroundInteractionTargets)
+	CreateOrUpdateRendererComponent();
+
+	for (const TWeakObjectPtr<UGroundInteractionTargetComponent>& TargetWeak : RegisteredTargets)
 	{
-		if (IsValid(Pair.Key))
+		if (UGroundInteractionTargetComponent* Target = TargetWeak.Get())
 		{
-			RebuildCaptureTargetInfo(Pair.Key);
+			Target->RebuildCaptureTargetInfo();
 		}
 	}
 }
 
-bool UGroundInteractionWorldSubsystem::InitOutputRenderTarget_GameThread(
-	UTextureRenderTarget2D* RenderTarget,
-	const FIntPoint& Size,
-	const FLinearColor& ClearColor) const
+void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
 {
-	if (!RenderTarget)
-	{
-		return false;
-	}
-
-	const FIntPoint SafeSize(
-		FMath::Max(Size.X, 16),
-		FMath::Max(Size.Y, 16));
-
-	const bool bNeedsInit =
-		RenderTarget->SizeX != SafeSize.X ||
-		RenderTarget->SizeY != SafeSize.Y ||
-		RenderTarget->RenderTargetFormat != RTF_R16f ||
-		RenderTarget->SRGB ||
-		RenderTarget->bAutoGenerateMips ||
-		!RenderTarget->bCanCreateUAV ||
-		RenderTarget->AddressX != TA_Clamp ||
-		RenderTarget->AddressY != TA_Clamp ||
-		RenderTarget->Filter != TF_Nearest ||
-		!RenderTarget->ClearColor.Equals(ClearColor);
-
-	if (!bNeedsInit)
-	{
-		return false;
-	}
-
-	RenderTarget->RenderTargetFormat = RTF_R16f;
-	RenderTarget->ClearColor = ClearColor;
-	RenderTarget->SRGB = false;
-	RenderTarget->bAutoGenerateMips = false;
-	RenderTarget->bCanCreateUAV = true;
-	RenderTarget->AddressX = TA_Clamp;
-	RenderTarget->AddressY = TA_Clamp;
-	RenderTarget->Filter = TF_Nearest;
-	RenderTarget->InitAutoFormat(SafeSize.X, SafeSize.Y);
-	RenderTarget->UpdateResourceImmediate(true);
-
-	return true;
-}
-
-void UGroundInteractionWorldSubsystem::RebuildCaptureTargetInfo(UGroundInteractionTargetComponent* Target)
-{
-	if (!IsValid(Target) || !bAssetsReady)
+	UWorld* World = GetWorld();
+	if (!World || !bAssetsReady)
 	{
 		return;
 	}
 
-	FGroundInteractionTargetInfo& TargetInfo = GroundInteractionTargets.FindOrAdd(Target);
-	
-	// 엔트리 리빌드
-	for (UStaticMeshComponent* ProxyComp : TargetInfo.InteractionBodies)
+	if (!RendererActor)
 	{
-		if (IsValid(ProxyComp))
+		FActorSpawnParameters SpawnParams;
+		SpawnParams.Name = MakeUniqueObjectName(
+			World->PersistentLevel,
+			AActor::StaticClass(),
+			TEXT("GroundInteractionRendererActor"));
+
+		SpawnParams.ObjectFlags |= RF_Transient;
+
+		RendererActor = World->SpawnActor<AActor>(
+			AActor::StaticClass(),
+			FTransform::Identity,
+			SpawnParams);
+
+		if (RendererActor)
 		{
-			ProxyComp->DestroyComponent();
+			RendererActor->SetActorHiddenInGame(true);
+			RendererActor->SetActorEnableCollision(false);
 		}
 	}
-	TargetInfo.InteractionBodies.Reset();
 
-	USkeletalMeshComponent* SkeletalMeshComp = Target->ResolveSourceSkeletalMesh();
-	TargetInfo.Skeletal = SkeletalMeshComp;
-
-	if (!IsValid(SkeletalMeshComp))
+	if (!RendererActor)
 	{
 		return;
 	}
 
-	BuildProxies(TargetInfo, SkeletalMeshComp);
-}
-
-void UGroundInteractionWorldSubsystem::DestroyCaptureTargetInfo(UGroundInteractionTargetComponent* Target)
-{
-	FGroundInteractionTargetInfo* ExistingTargetInfo = GroundInteractionTargets.Find(Target);
-	if (!ExistingTargetInfo)
+	if (!RendererComponent)
 	{
-		return;
+		RendererComponent = NewObject<UGroundInteractionRendererComponent>(
+			RendererActor,
+			TEXT("GroundInteractionRendererComponent"),
+			RF_Transient);
+
+		RendererActor->AddInstanceComponent(RendererComponent);
 	}
 
-	for (UStaticMeshComponent* ProxyComp : ExistingTargetInfo->InteractionBodies)
+	RendererComponent->InitializeRenderer(
+		this,
+		DepthRT,
+		FadeRT,
+		MaterialParameterCollection);
+
+	if (!RendererComponent->IsRegistered())
 	{
-		if (IsValid(ProxyComp))
-		{
-			ProxyComp->DestroyComponent();
-		}
-	}
-
-	GroundInteractionTargets.Remove(Target);
-}
-
-void UGroundInteractionWorldSubsystem::BuildProxies(
-	FGroundInteractionTargetInfo& TargetInfo,
-	USkeletalMeshComponent* SkeletalMeshComp)
-{
-	if (!IsValid(SkeletalMeshComp) || !bAssetsReady)
-	{
-		return;
-	}
-
-	UPhysicsAsset* PhysicsAsset = SkeletalMeshComp->GetPhysicsAsset();
-	if (!PhysicsAsset)
-	{
-		return;
-	}
-
-	AActor* OwnerActor = SkeletalMeshComp->GetOwner();
-	if (!OwnerActor)
-	{
-		return;
-	}
-
-	for (USkeletalBodySetup* BodySetup : PhysicsAsset->SkeletalBodySetups)
-	{
-		if (!BodySetup)
-		{
-			continue;
-		}
-
-		const FName BoneName = BodySetup->BoneName;
-		const FKAggregateGeom& AggGeom = BodySetup->AggGeom;
-
-		for (const FKBoxElem& BoxElem : AggGeom.BoxElems)
-		{
-			const FTransform RelativeTransform(
-				BoxElem.Rotation.Quaternion(),
-				BoxElem.Center,
-				FVector::OneVector);
-
-			const FVector DesiredWorldSize(BoxElem.X, BoxElem.Y, BoxElem.Z);
-
-			if (UStaticMeshComponent* Proxy = CreateProxy(
-				OwnerActor,
-				SkeletalMeshComp,
-				BoneName,
-				CubeMesh,
-				RelativeTransform,
-				DesiredWorldSize))
-			{
-				TargetInfo.InteractionBodies.Add(Proxy);
-			}
-		}
-
-		for (const FKSphereElem& SphereElem : AggGeom.SphereElems)
-		{
-			const FTransform RelativeTransform(
-				FQuat::Identity,
-				SphereElem.Center,
-				FVector::OneVector);
-
-			const float Diameter = SphereElem.Radius * 2.0f;
-			const FVector DesiredWorldSize(Diameter, Diameter, Diameter);
-
-			if (UStaticMeshComponent* Proxy = CreateProxy(
-				OwnerActor,
-				SkeletalMeshComp,
-				BoneName,
-				SphereMesh,
-				RelativeTransform,
-				DesiredWorldSize))
-			{
-				TargetInfo.InteractionBodies.Add(Proxy);
-			}
-		}
-
-		for (const FKSphylElem& SphylElem : AggGeom.SphylElems)
-		{
-			const FTransform RelativeTransform(
-				SphylElem.Rotation.Quaternion(),
-				SphylElem.Center,
-				FVector::OneVector);
-
-			const float Diameter = SphylElem.Radius * 2.0f;
-			const float FullHeight = SphylElem.Length + Diameter;
-			const FVector DesiredWorldSize(Diameter, Diameter, FullHeight);
-
-			if (UStaticMeshComponent* Proxy = CreateProxy(
-				OwnerActor,
-				SkeletalMeshComp,
-				BoneName,
-				CylinderMesh,
-				RelativeTransform,
-				DesiredWorldSize))
-			{
-				TargetInfo.InteractionBodies.Add(Proxy);
-			}
-		}
+		RendererComponent->RegisterComponent();
 	}
 }
 
-UStaticMeshComponent* UGroundInteractionWorldSubsystem::CreateProxy(
-	AActor* OwnerActor,
-	USkeletalMeshComponent* Parent,
-	const FName BoneName,
-	UStaticMesh* StaticMesh,
-	const FTransform& RelativeTransform,
-	const FVector& DesiredWorldSize)
+void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
 {
-	if (!OwnerActor || !Parent || !StaticMesh)
+	if (RendererComponent)
 	{
-		return nullptr;
+		RendererComponent->DestroyComponent();
+		RendererComponent = nullptr;
 	}
 
-	UStaticMeshComponent* ProxyComp = NewObject<UStaticMeshComponent>(
-		OwnerActor,
-		MakeUniqueObjectName(OwnerActor, UStaticMeshComponent::StaticClass(), TEXT("GIProxy")));
-
-	if (!ProxyComp)
+	if (RendererActor)
 	{
-		return nullptr;
+		RendererActor->Destroy();
+		RendererActor = nullptr;
 	}
-
-	OwnerActor->AddInstanceComponent(ProxyComp);
-
-	ProxyComp->SetMobility(EComponentMobility::Movable);
-	ProxyComp->SetStaticMesh(StaticMesh);
-	ProxyComp->SetupAttachment(Parent, BoneName);
-	ProxyComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ProxyComp->SetGenerateOverlapEvents(false);
-	ProxyComp->SetCastShadow(false);
-	ProxyComp->SetVisibleInSceneCaptureOnly(true);
-	ProxyComp->SetReceivesDecals(false);
-	ProxyComp->bCastDynamicShadow = false;
-	ProxyComp->bAffectDistanceFieldLighting = false;
-	ProxyComp->ComponentTags.Add(TEXT("ExcludeFromSparsePixelate"));
-
-	const FVector SourceFullSize = StaticMesh->GetBounds().BoxExtent * 2.0f;
-	const FVector SafeSourceSize(
-		FMath::Max(SourceFullSize.X, 1.0f),
-		FMath::Max(SourceFullSize.Y, 1.0f),
-		FMath::Max(SourceFullSize.Z, 1.0f));
-
-	const FVector RelativeScale3D(
-		DesiredWorldSize.X / SafeSourceSize.X,
-		DesiredWorldSize.Y / SafeSourceSize.Y,
-		DesiredWorldSize.Z / SafeSourceSize.Z);
-
-	FTransform FinalRelativeTransform = RelativeTransform;
-	FinalRelativeTransform.SetScale3D(RelativeScale3D);
-	ProxyComp->SetRelativeTransform(FinalRelativeTransform);
-	
-	ProxyComp->RegisterComponent();
-
-	return ProxyComp;
 }

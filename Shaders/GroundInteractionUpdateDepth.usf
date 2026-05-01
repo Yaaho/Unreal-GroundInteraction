@@ -6,18 +6,18 @@ RWTexture2D<float> FadeTexture;
 
 Texture2D<float> CurrentDepthTexture;
 
-int2 TextureSize;
+int2 NumCells;
 float MaxSceneDepth;
 float SceneDepthInvalidEpsilon;
 
-[numthreads(8, 8, 1)]
+[numthreads(GI_THREADGROUP_SIZE_X, GI_THREADGROUP_SIZE_Y, GI_THREADGROUP_SIZE_Z)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 {
-	if (DispatchThreadId.x >= TextureSize.x || DispatchThreadId.y >= TextureSize.y)
+	if (DispatchThreadId.x >= NumCells.x || DispatchThreadId.y >= NumCells.y)
 	{
 		return;
 	}
-	
+
 	const int2 Pixel = int2(DispatchThreadId.xy);
 
 	float Depth = DepthTexture[Pixel];
@@ -30,7 +30,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	}
 
 	const float SceneDepth = CurrentDepthTexture.Load(int3(Pixel, 0)).r;
-	
+
 	// 현재 위치에 프록시가 있으면 새 contact로 취급.
 	// R = base depth
 	// G = fade height, contact 순간에는 0
