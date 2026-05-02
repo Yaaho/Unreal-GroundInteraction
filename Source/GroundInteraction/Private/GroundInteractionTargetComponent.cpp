@@ -16,12 +16,14 @@ void UGroundInteractionTargetComponent::OnRegister()
 
 void UGroundInteractionTargetComponent::OnUnregister()
 {
+	DestroyCaptureTargetInfo();
 	UnregisterFromSubsystem();
 	Super::OnUnregister();
 }
 
 void UGroundInteractionTargetComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 {
+	DestroyCaptureTargetInfo();
 	UnregisterFromSubsystem();
 	Super::OnComponentDestroyed(bDestroyingHierarchy);
 }

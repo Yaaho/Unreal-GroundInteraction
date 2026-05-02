@@ -596,13 +596,18 @@ FGroundInteractionRendererProxy::FGroundInteractionRendererProxy(
 	float InFadeMaxHeight,
 	float InFadeUpdateIntervalSeconds,
 	float InCaptureUpdateIntervalSeconds)
-	: RendererComponent(InRendererComponent)
-	, OutputDepthTextureReferenceRHI(InDepthTextureReferenceRHI)
-	, OutputFadeTextureReferenceRHI(InFadeTextureReferenceRHI)
+	: CurrentSnappedLocation(FVector::ZeroVector)
 	, RenderTargetSize(
 		FMath::Max(InNumCell.X, 1),
 		FMath::Max(InNumCell.Y, 1))
+	, ShowOnlyPrimitives()
+	, bRenderTargetChanged(false)
+	, RendererComponent(InRendererComponent)
+	, OutputDepthTextureReferenceRHI(InDepthTextureReferenceRHI)
+	, OutputFadeTextureReferenceRHI(InFadeTextureReferenceRHI)
 	, CellSpacing(InCellSpacing)
+	, PreviousSnappedLocation(FVector::ZeroVector)
+	, bHasPreviousCapture(false)
 	, CaptureExtentWS(
 		FMath::Max(InCaptureExtentWS.X, 1.0),
 		FMath::Max(InCaptureExtentWS.Y, 1.0),
@@ -611,22 +616,14 @@ FGroundInteractionRendererProxy::FGroundInteractionRendererProxy(
 	, FadeMaxHeight(FMath::Max(InFadeMaxHeight, 0.0f))
 	, FadeUpdateIntervalSeconds(FMath::Max(InFadeUpdateIntervalSeconds, KINDA_SMALL_NUMBER))
 	, CaptureUpdateIntervalSeconds(FMath::Max(InCaptureUpdateIntervalSeconds, KINDA_SMALL_NUMBER))
+	, DepthFadeTextures()
+	, CurrentStateIndex(0)
+	, FadeUpdateAccumulatorSeconds(0.0f)
+	, CaptureUpdateAccumulatorSeconds(0.0f)
+	, bReleased(false)
+	, bClearDepthFadeTextures(true)
 {
-	CurrentSnappedLocation = FVector::ZeroVector;
-	PreviousSnappedLocation = FVector::ZeroVector;
-
-	ShowOnlyPrimitives.Reset();
-
-	bRenderTargetChanged = false;
-	bHasPreviousCapture = false;
-
-	CurrentStateIndex = 0;
-
-	FadeUpdateAccumulatorSeconds = 0.0f;
-	CaptureUpdateAccumulatorSeconds = 0.0f;
-
-	bReleased = false;
-	bClearDepthFadeTextures = true;
+	
 }
 
 

@@ -21,16 +21,16 @@ namespace GroundInteractionAssetPaths
 	
 	static const FSoftObjectPath FadeRT(
 		TEXT("/GroundInteraction/RT/RT_GroundInteractionFade.RT_GroundInteractionFade"));
-
+	
 	static const FSoftObjectPath CubeMesh(
-		TEXT("/Engine/BasicShapes/Cube.Cube"));
-
+		TEXT("/GroundInteraction/Mesh/Cube.Cube"));
+	
 	static const FSoftObjectPath SphereMesh(
-		TEXT("/Engine/BasicShapes/Sphere.Sphere"));
-
+		TEXT("/GroundInteraction/Mesh/Sphere.Sphere"));
+	
 	// 엔진 기본 캡슐 매시는 없어서 실린더를 대신 사용한다.
 	static const FSoftObjectPath CylinderMesh(
-		TEXT("/Engine/BasicShapes/Cylinder.Cylinder"));
+		TEXT("/GroundInteraction/Mesh/Capsule.Capsule"));
 }
 
 void UGroundInteractionWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
