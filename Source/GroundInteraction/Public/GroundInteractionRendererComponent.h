@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
+#include "Components/SceneComponent.h"
 #include "GroundInteractionRendererComponent.generated.h"
 
 class FGroundInteractionRendererProxy;
@@ -13,7 +13,7 @@ class UTextureRenderTarget2D;
 class FSceneViewFamily;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
-class GROUNDINTERACTION_API UGroundInteractionRendererComponent : public UActorComponent
+class GROUNDINTERACTION_API UGroundInteractionRendererComponent : public USceneComponent
 {
 	GENERATED_BODY()
 
@@ -30,13 +30,17 @@ public:
 		UTextureRenderTarget2D* InFadeRT,
 		UMaterialParameterCollection* InMaterialParameterCollection);
 	
-	// 렌더 컴포넌트 프레임 준비 함수.
-	void PrepareFrame_GameThread(
-		UGroundInteractionWorldSubsystem* InSubsystem,
-		FSceneViewFamily& InViewFamily);
+	// 컴포넌트의 트랜스폼이 변경되었을 때 스냅된 위치를 프록시와 MPC 에 전달
+	virtual void SendRenderTransform_Concurrent() override;
+
+	// RT size 변경, 프리미티브 컬링, 프록시 상태 전송 등을 담당 
+	virtual void TickComponent(
+		float DeltaTime,
+		ELevelTick TickType,
+		FActorComponentTickFunction* ThisTickFunction) override;
 	
-	// 프록시에서 호출되는 MPC 설정 함수
-	void UpdateMPC_GameThread(
+	// 컴포넌트에서 MPC capture 정보를 갱신
+	void UpdateMPC(
 		const FVector& CaptureOriginWS,
 		const FVector& CaptureExtentWS) const;
 	
@@ -50,9 +54,6 @@ private:
 		UTextureRenderTarget2D* RenderTarget,
 		const FIntPoint& Size,
 		const FLinearColor& ClearColor) const;
-
-	bool GetPlayerCameraLocation(
-		FVector& OutCameraLocationWS) const;
 
 private:
 	UPROPERTY(Transient)
@@ -70,6 +71,4 @@ private:
 	FSceneInterface* RegisteredScene = nullptr;
 	
 	FIntPoint RenderTargetSize = FIntPoint::ZeroValue;
-	
-	FVector CurrentCaptureCenterWS = FVector::ZeroVector;
 };

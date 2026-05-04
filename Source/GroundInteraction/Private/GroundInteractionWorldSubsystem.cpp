@@ -28,8 +28,7 @@ namespace GroundInteractionAssetPaths
 	static const FSoftObjectPath SphereMesh(
 		TEXT("/GroundInteraction/Mesh/Sphere.Sphere"));
 	
-	// 엔진 기본 캡슐 매시는 없어서 실린더를 대신 사용한다.
-	static const FSoftObjectPath CylinderMesh(
+	static const FSoftObjectPath CapsuleMesh(
 		TEXT("/GroundInteraction/Mesh/Capsule.Capsule"));
 }
 
@@ -37,8 +36,7 @@ void UGroundInteractionWorldSubsystem::Initialize(FSubsystemCollectionBase& Coll
 {
 	Super::Initialize(Collection);
 
-	SceneViewExtension =
-		FSceneViewExtensions::NewExtension<FGroundInteractionSceneViewExtension>(this, GetWorld());
+	SceneViewExtension = FSceneViewExtensions::NewExtension<FGroundInteractionSceneViewExtension>(this, GetWorld());
 
 	BeginAsyncLoadAssets();
 }
@@ -64,7 +62,7 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 	FadeRT = nullptr;
 	CubeMesh = nullptr;
 	SphereMesh = nullptr;
-	CylinderMesh = nullptr;
+	CapsuleMesh = nullptr;
 	MaterialParameterCollection = nullptr;
 
 	if (AssetLoadHandle.IsValid())
@@ -79,6 +77,48 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 	}
 
 	Super::Deinitialize();
+}
+
+
+void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
+{
+	(void)DeltaTime;
+
+	if (!bAssetsReady ||
+		!RendererActor ||
+		!RendererComponent)
+	{
+		return;
+	}
+
+	FVector RawCameraLocationWS = FVector::ZeroVector;
+
+	if (!GetPlayerCameraLocation(RawCameraLocationWS))
+	{
+		return;
+	}
+	
+	// 플레이어 카메라 위치를 렌더 액터 위치로 설정
+	RendererActor->SetActorLocation(RawCameraLocationWS);
+}
+
+TStatId UGroundInteractionWorldSubsystem::GetStatId() const
+{
+	RETURN_QUICK_DECLARE_CYCLE_STAT(
+		UGroundInteractionWorldSubsystem,
+		STATGROUP_Tickables);
+}
+
+bool UGroundInteractionWorldSubsystem::IsTickable() const
+{
+	const UWorld* World = GetWorld();
+
+	return
+		World &&
+		!World->IsNetMode(NM_DedicatedServer) &&
+		bAssetsReady &&
+		RendererActor &&
+		RendererComponent;
 }
 
 void UGroundInteractionWorldSubsystem::RegisterTarget(UGroundInteractionTargetComponent* Target)
@@ -126,22 +166,6 @@ void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitive
 	InteractionPrimitives.Remove(Primitive);
 }
 
-void UGroundInteractionWorldSubsystem::PrepareRendererFrame_GameThread(
-	FSceneViewFamily& InViewFamily)
-{
-	check(IsInGameThread());
-
-	if (!bAssetsReady ||
-		!RendererComponent)
-	{
-		return;
-	}
-
-	RendererComponent->PrepareFrame_GameThread(
-		this,
-		InViewFamily);
-}
-
 void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 {
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
@@ -157,7 +181,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	AssetsToLoad.Add(GroundInteractionAssetPaths::FadeRT);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::CubeMesh);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::SphereMesh);
-	AssetsToLoad.Add(GroundInteractionAssetPaths::CylinderMesh);
+	AssetsToLoad.Add(GroundInteractionAssetPaths::CapsuleMesh);
 
 	if (!Settings->MaterialParameterCollection.IsNull())
 	{
@@ -201,10 +225,10 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 		SphereMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::SphereMesh.TryLoad());
 	}
 
-	CylinderMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::CylinderMesh.ResolveObject());
-	if (!CylinderMesh)
+	CapsuleMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::CapsuleMesh.ResolveObject());
+	if (!CapsuleMesh)
 	{
-		CylinderMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::CylinderMesh.TryLoad());
+		CapsuleMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::CapsuleMesh.TryLoad());
 	}
 
 	if (!Settings->MaterialParameterCollection.IsNull())
@@ -222,7 +246,7 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 		FadeRT != nullptr &&
 		CubeMesh != nullptr &&
 		SphereMesh != nullptr &&
-		CylinderMesh != nullptr &&
+		CapsuleMesh != nullptr &&
 		MaterialParameterCollection != nullptr;
 
 	if (!bAssetsReady)
@@ -259,10 +283,7 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
 
 		SpawnParams.ObjectFlags |= RF_Transient;
 
-		RendererActor = World->SpawnActor<AActor>(
-			AActor::StaticClass(),
-			FTransform::Identity,
-			SpawnParams);
+		RendererActor = World->SpawnActor<AActor>(AActor::StaticClass(), FTransform::Identity, SpawnParams);
 
 		if (RendererActor)
 		{
@@ -278,24 +299,19 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
 
 	if (!RendererComponent)
 	{
-		RendererComponent = NewObject<UGroundInteractionRendererComponent>(
-			RendererActor,
-			TEXT("GroundInteractionRendererComponent"),
-			RF_Transient);
+		RendererComponent = NewObject<UGroundInteractionRendererComponent>(RendererActor, TEXT("GroundInteractionRendererComponent"), RF_Transient);
 
+		RendererActor->SetRootComponent(RendererComponent);
+		
 		RendererActor->AddInstanceComponent(RendererComponent);
 	}
-
-	RendererComponent->InitializeRenderer(
-		this,
-		DepthRT,
-		FadeRT,
-		MaterialParameterCollection);
 
 	if (!RendererComponent->IsRegistered())
 	{
 		RendererComponent->RegisterComponent();
 	}
+	
+	RendererComponent->InitializeRenderer(this, DepthRT, FadeRT, MaterialParameterCollection);
 }
 
 void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
@@ -311,4 +327,26 @@ void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
 		RendererActor->Destroy();
 		RendererActor = nullptr;
 	}
+}
+
+bool UGroundInteractionWorldSubsystem::GetPlayerCameraLocation(
+	FVector& OutCameraLocationWS) const
+{
+	const UWorld* World = GetWorld();
+
+	if (!World || World->IsNetMode(NM_DedicatedServer))
+	{
+		return false;
+	}
+
+	APlayerController* PlayerController = World->GetFirstPlayerController();
+
+	if (!PlayerController || !PlayerController->PlayerCameraManager)
+	{
+		return false;
+	}
+
+	OutCameraLocationWS = PlayerController->PlayerCameraManager->GetCameraLocation();
+
+	return true;
 }

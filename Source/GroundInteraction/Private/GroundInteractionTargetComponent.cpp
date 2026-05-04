@@ -66,8 +66,7 @@ void UGroundInteractionTargetComponent::RegisterToSubsystem()
 {
 	if (UWorld* World = GetWorld())
 	{
-		if (UGroundInteractionWorldSubsystem* Subsystem =
-			World->GetSubsystem<UGroundInteractionWorldSubsystem>())
+		if (UGroundInteractionWorldSubsystem* Subsystem = World->GetSubsystem<UGroundInteractionWorldSubsystem>())
 		{
 			Subsystem->RegisterTarget(this);
 		}
@@ -78,8 +77,7 @@ void UGroundInteractionTargetComponent::UnregisterFromSubsystem()
 {
 	if (UWorld* World = GetWorld())
 	{
-		if (UGroundInteractionWorldSubsystem* Subsystem =
-			World->GetSubsystem<UGroundInteractionWorldSubsystem>())
+		if (UGroundInteractionWorldSubsystem* Subsystem = World->GetSubsystem<UGroundInteractionWorldSubsystem>())
 		{
 			Subsystem->UnregisterTarget(this);
 		}
@@ -96,8 +94,7 @@ void UGroundInteractionTargetComponent::RebuildCaptureTargetInfo()
 		return;
 	}
 
-	UGroundInteractionWorldSubsystem* Subsystem =
-		World->GetSubsystem<UGroundInteractionWorldSubsystem>();
+	UGroundInteractionWorldSubsystem* Subsystem = World->GetSubsystem<UGroundInteractionWorldSubsystem>();
 
 	if (!Subsystem || !Subsystem->AreAssetsReady())
 	{
@@ -163,7 +160,7 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 	UStaticMesh* CubeMesh = Subsystem->GetCubeMesh();
 	UStaticMesh* SphereMesh = Subsystem->GetSphereMesh();
-	UStaticMesh* CylinderMesh = Subsystem->GetCylinderMesh();
+	UStaticMesh* CylinderMesh = Subsystem->GetCapsuleMesh();
 
 	for (USkeletalBodySetup* BodySetup : PhysicsAsset->SkeletalBodySetups)
 	{

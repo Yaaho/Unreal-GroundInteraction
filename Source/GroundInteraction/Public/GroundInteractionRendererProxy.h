@@ -4,10 +4,6 @@
 
 #include "CoreMinimal.h"
 
-// 렌더가 끝나고 컴포넌트의 MPC 에 센터 위치를 설정해주려면 프록시가 컴포넌트 포인터를 가져야 한다.
-class UGroundInteractionRendererComponent;
-
-
 // 프록시 내부 렌더 타겟에 쓰이는 구조체
 struct FPlaneTexture
 {
@@ -56,7 +52,6 @@ class GROUNDINTERACTION_API FGroundInteractionRendererProxy final : public FDefe
 {
 public:
 	explicit FGroundInteractionRendererProxy(
-		UGroundInteractionRendererComponent* InRendererComponent,
 		FTextureReferenceRHIRef InDepthTextureReferenceRHI,
 		FTextureReferenceRHIRef InFadeTextureReferenceRHI,
 		FIntVector InNumCell,
@@ -182,8 +177,6 @@ private:
 	
 	
 private:
-	TWeakObjectPtr<UGroundInteractionRendererComponent> RendererComponent;
-
 	FTextureReferenceRHIRef OutputDepthTextureReferenceRHI;
 	FTextureReferenceRHIRef OutputFadeTextureReferenceRHI;
 

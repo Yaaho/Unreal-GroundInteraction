@@ -20,11 +20,6 @@ public:
 	virtual bool IsActiveThisFrame_Internal(
 		const FSceneViewExtensionContext& Context) const override;
 	
-	// 게임스레드에서 호출됨.
-	// 현재 프리펩의 렌더 프록시 정보들을 업데이트함.
-	virtual void BeginRenderViewFamily(
-		FSceneViewFamily& InViewFamily) override;
-	
 	// 프록시의 렌더 함수 호출
 	virtual void PreRenderViewFamily_RenderThread(
 		FRDGBuilder& GraphBuilder,

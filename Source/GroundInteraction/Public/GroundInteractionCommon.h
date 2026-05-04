@@ -39,8 +39,7 @@ namespace GroundInteractionCommon
 			SafeExtentWS.Y * 2.0 / static_cast<double>(SafeSize.Y));
 	}
 
-	// [GI_CHANGE] 모든 capture center는 이 함수로만 만든다.
-	// 예전 안정 버전과 동일하게 texel center 기준 +0.5 snap 사용.
+	// 모든 capture center는 이 함수로만 만든다.
 	FORCEINLINE FVector SnapCaptureCenterWS(
 		const FVector& RawCenterWS,
 		const FVector& CaptureExtentWS,

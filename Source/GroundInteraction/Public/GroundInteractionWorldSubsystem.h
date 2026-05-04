@@ -9,17 +9,20 @@
 class FGroundInteractionSceneViewExtension;
 class UGroundInteractionRendererComponent;
 class UGroundInteractionTargetComponent;
-class FSceneViewFamily;
 struct FStreamableHandle;
 
 UCLASS()
-class GROUNDINTERACTION_API UGroundInteractionWorldSubsystem : public UWorldSubsystem
+class GROUNDINTERACTION_API UGroundInteractionWorldSubsystem : public UTickableWorldSubsystem
 {
 	GENERATED_BODY()
 	
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+	
+	virtual void Tick(float DeltaTime) override;
+	virtual TStatId GetStatId() const override;
+	virtual bool IsTickable() const override;
 	
 	void RegisterTarget(UGroundInteractionTargetComponent* Target);
 	void UnregisterTarget(UGroundInteractionTargetComponent* Target);
@@ -31,11 +34,6 @@ public:
 	{
 		return InteractionPrimitives;
 	}
-	
-	// BeginRenderViewFamily 에서 해당 함수가 호출됨
-	// 게임스레드에서 렌더 컴포넌트를 업데이트하는 함수
-	void PrepareRendererFrame_GameThread(
-		FSceneViewFamily& InViewFamily);
 
 	UTextureRenderTarget2D* GetDepthRT() const
 	{
@@ -57,9 +55,9 @@ public:
 		return SphereMesh;
 	}
 
-	UStaticMesh* GetCylinderMesh() const
+	UStaticMesh* GetCapsuleMesh() const
 	{
-		return CylinderMesh;
+		return CapsuleMesh;
 	}
 
 	UMaterialParameterCollection* GetMaterialParameterCollection() const
@@ -83,6 +81,8 @@ private:
 
 	void CreateOrUpdateRendererComponent();
 	void DestroyRendererComponent();
+	
+	bool GetPlayerCameraLocation(FVector& OutCameraLocationWS) const;
 
 private:
 	UPROPERTY(Transient)
@@ -104,7 +104,7 @@ private:
 	TObjectPtr<UStaticMesh> SphereMesh = nullptr;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UStaticMesh> CylinderMesh = nullptr;
+	TObjectPtr<UStaticMesh> CapsuleMesh = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialParameterCollection> MaterialParameterCollection = nullptr;

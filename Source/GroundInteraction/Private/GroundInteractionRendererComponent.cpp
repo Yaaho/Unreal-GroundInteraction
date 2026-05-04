@@ -8,13 +8,12 @@
 
 #include "Engine/TextureRenderTarget2D.h"
 #include "Kismet/KismetMaterialLibrary.h"
-#include "GameFramework/PlayerController.h"
-#include "Camera/PlayerCameraManager.h"
 
 UGroundInteractionRendererComponent::UGroundInteractionRendererComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
-	PrimaryComponentTick.bStartWithTickEnabled = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = true;
+	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
 }
 
 void UGroundInteractionRendererComponent::OnRegister()
@@ -43,53 +42,108 @@ void UGroundInteractionRendererComponent::InitializeRenderer(
 	UTextureRenderTarget2D* InFadeRT,
 	UMaterialParameterCollection* InMaterialParameterCollection)
 {
-	check(IsInGameThread());
-
 	OwnerSubsystem = InSubsystem;
 	DepthRT = InDepthRT;
 	FadeRT = InFadeRT;
 	MaterialParameterCollection = InMaterialParameterCollection;
 
 	RenderTargetSize = FIntPoint::ZeroValue;
-	CurrentCaptureCenterWS = FVector::ZeroVector;
 
 	if (IsRegistered())
 	{
 		DestroyRenderProxy();
 		CreateRenderProxy();
 	}
+	
+	SendRenderTransform_Concurrent();
 }
 
-void UGroundInteractionRendererComponent::PrepareFrame_GameThread(
-	UGroundInteractionWorldSubsystem* InSubsystem,
-	FSceneViewFamily& InViewFamily)
+void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 {
-	check(IsInGameThread());
+	Super::SendRenderTransform_Concurrent();
 
 	if (!RenderProxy)
 	{
 		return;
 	}
 
-	UGroundInteractionWorldSubsystem* Subsystem =
-		InSubsystem ? InSubsystem : OwnerSubsystem.Get();
-
-	if (!Subsystem ||
-		!Subsystem->AreAssetsReady())
-	{
-		return;
-	}
-
-	const UGroundInteractionSettings* Settings =
-		UGroundInteractionSettings::Get();
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
 
 	if (!Settings)
 	{
 		return;
 	}
 
-	const FIntPoint NewRenderTargetSize =
-		Settings->GetRenderTargetSize();
+	const FIntPoint SafeRenderTargetSize = Settings->GetRenderTargetSize();
+
+	if (SafeRenderTargetSize.X <= 0 || SafeRenderTargetSize.Y <= 0)
+	{
+		return;
+	}
+
+	const FVector CaptureExtentWS = GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent);
+
+	const FVector RawCaptureCenterWS = GetComponentLocation();
+
+	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCaptureCenterWS, CaptureExtentWS, SafeRenderTargetSize);
+
+	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
+
+	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyLocation)(
+		[ProxyForCommand, SnappedCaptureCenterWS](FRHICommandListImmediate& RHICmdList)
+		{
+			if (!ProxyForCommand)
+			{
+				return;
+			}
+
+			// 프록시에 Snapped Center 위치 설정
+			ProxyForCommand->CurrentSnappedLocation = SnappedCaptureCenterWS;
+		});
+
+	const FVector CaptureOriginWS = GroundInteractionCommon::GetCaptureOriginWS(SnappedCaptureCenterWS, CaptureExtentWS);
+	
+	// MPC 에 Snapped Capture Origin 위치 설정
+	UpdateMPC(CaptureOriginWS, CaptureExtentWS);
+}
+
+
+void UGroundInteractionRendererComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	(void)DeltaTime;
+
+	if (!RenderProxy)
+	{
+		return;
+	}
+
+	UGroundInteractionWorldSubsystem* Subsystem = OwnerSubsystem.Get();
+
+	if (!Subsystem)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			Subsystem = World->GetSubsystem<UGroundInteractionWorldSubsystem>();
+
+			OwnerSubsystem = Subsystem;
+		}
+	}
+
+	if (!Subsystem || !Subsystem->AreAssetsReady())
+	{
+		return;
+	}
+
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+
+	if (!Settings)
+	{
+		return;
+	}
+
+	const FIntPoint NewRenderTargetSize = Settings->GetRenderTargetSize();
 
 	bool bRenderTargetChanged = false;
 
@@ -99,96 +153,55 @@ void UGroundInteractionRendererComponent::PrepareFrame_GameThread(
 		ApplyOutputRenderTargets();
 
 		bRenderTargetChanged = true;
+		
+		SendRenderTransform_Concurrent();
 	}
 
-	if (RenderTargetSize.X <= 0 ||
-		RenderTargetSize.Y <= 0)
+	if (RenderTargetSize.X <= 0 || RenderTargetSize.Y <= 0)
 	{
 		return;
 	}
 
-	FVector RawCameraLocationWS = FVector::ZeroVector;
+	const FVector CaptureExtentWS = GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent);
 
-	if (!GetPlayerCameraLocation(RawCameraLocationWS))
-	{
-		return;
-	}
-
-	const FVector CaptureExtentWS =
-		GroundInteractionCommon::MakeSafeCaptureExtent(
-			Settings->CaptureWorldExtent);
-
-	const FVector SnappedCaptureCenterWS =
-		GroundInteractionCommon::SnapCaptureCenterWS(
-			RawCameraLocationWS,
+	const FVector RawCaptureCenterWS = GetComponentLocation();
+	
+	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(
+			RawCaptureCenterWS,
 			CaptureExtentWS,
 			RenderTargetSize);
 
-	const bool bCaptureCenterChanged =
-		!CurrentCaptureCenterWS.Equals(
-			SnappedCaptureCenterWS,
-			KINDA_SMALL_NUMBER);
-
-	// Center Location, Render Target Size 중 아무것도 바뀌지 않았으면 return
-	if (!bRenderTargetChanged &&
-		!bCaptureCenterChanged)
-	{
-		return;
-	}
-	
-	CurrentCaptureCenterWS = SnappedCaptureCenterWS;
-
 	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
-	
-	// 이 렌더 컴포넌트의 바운드 안에 있는 primitive 목록 컬링
-	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives =
-		Subsystem->GetInteractionPrimitives();
 
-	const FBox CaptureCullBox(
-		CurrentCaptureCenterWS - CaptureExtentWS,
-		CurrentCaptureCenterWS + CaptureExtentWS);
+	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives = Subsystem->GetInteractionPrimitives();
 
-	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak :
-		InteractionPrimitives)
+	const FBox CaptureCullBox(SnappedCaptureCenterWS - CaptureExtentWS, SnappedCaptureCenterWS + CaptureExtentWS);
+
+	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
 	{
-		UPrimitiveComponent* Primitive =
-			PrimitiveWeak.Get();
+		UPrimitiveComponent* Primitive = PrimitiveWeak.Get();
 
-		if (!IsValid(Primitive) ||
-			!Primitive->IsRegistered())
+		if (!IsValid(Primitive) || !Primitive->IsRegistered())
 		{
 			continue;
 		}
 
 		if (Primitive->Bounds.GetBox().Intersect(CaptureCullBox))
 		{
-			ShowOnlyPrimitives.Add(
-				Primitive->GetPrimitiveSceneId());
+			ShowOnlyPrimitives.Add(Primitive->GetPrimitiveSceneId());
 		}
 	}
 
-	FGroundInteractionRendererProxy* ProxyForCommand =
-		RenderProxy;
+	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
-	const FVector CaptureCenterForCommand =
-		CurrentCaptureCenterWS;
+	const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
 
-	const FIntPoint RenderTargetSizeForCommand =
-		RenderTargetSize;
-
-	const bool bRenderTargetChangedForCommand =
-		bRenderTargetChanged;
-
-	TSet<FPrimitiveComponentId> ShowOnlyPrimitivesForCommand =
-		MoveTemp(ShowOnlyPrimitives);
-
-	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyFrame)(
+	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyFrameState)(
 		[
 			ProxyForCommand,
-			CaptureCenterForCommand,
 			RenderTargetSizeForCommand,
-			bRenderTargetChangedForCommand,
-			ShowOnlyPrimitivesForCommand = MoveTemp(ShowOnlyPrimitivesForCommand)
+			bRenderTargetChanged,
+			ShowOnlyPrimitivesForCommand = MoveTemp(ShowOnlyPrimitives)
 		](FRHICommandListImmediate& RHICmdList) mutable
 		{
 			if (!ProxyForCommand)
@@ -196,16 +209,11 @@ void UGroundInteractionRendererComponent::PrepareFrame_GameThread(
 				return;
 			}
 
-			ProxyForCommand->CurrentSnappedLocation =
-				CaptureCenterForCommand;
+			ProxyForCommand->RenderTargetSize = RenderTargetSizeForCommand;
 
-			ProxyForCommand->RenderTargetSize =
-				RenderTargetSizeForCommand;
+			ProxyForCommand->ShowOnlyPrimitives = MoveTemp(ShowOnlyPrimitivesForCommand);
 
-			ProxyForCommand->ShowOnlyPrimitives =
-				MoveTemp(ShowOnlyPrimitivesForCommand);
-
-			if (bRenderTargetChangedForCommand)
+			if (bRenderTargetChanged)
 			{
 				ProxyForCommand->bRenderTargetChanged = true;
 			}
@@ -213,14 +221,12 @@ void UGroundInteractionRendererComponent::PrepareFrame_GameThread(
 }
 
 
-void UGroundInteractionRendererComponent::UpdateMPC_GameThread(
+void UGroundInteractionRendererComponent::UpdateMPC(
 	const FVector& CaptureOriginWS,
 	const FVector& CaptureExtentWS) const
 {
-	check(IsInGameThread());
 
-	if (!GetWorld() ||
-		!MaterialParameterCollection)
+	if (!GetWorld() || !MaterialParameterCollection)
 	{
 		return;
 	}
@@ -254,7 +260,6 @@ void UGroundInteractionRendererComponent::UpdateMPC_GameThread(
 
 void UGroundInteractionRendererComponent::CreateRenderProxy()
 {
-	check(IsInGameThread());
 
 	if (RenderProxy)
 	{
@@ -262,25 +267,21 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 	}
 
 	UWorld* World = GetWorld();
-	if (!World ||
-		!World->Scene)
+	if (!World || !World->Scene)
 	{
 		return;
 	}
 
-	UGroundInteractionWorldSubsystem* Subsystem =
-		OwnerSubsystem.Get();
+	UGroundInteractionWorldSubsystem* Subsystem = OwnerSubsystem.Get();
 
 	if (!Subsystem)
 	{
-		Subsystem =
-			World->GetSubsystem<UGroundInteractionWorldSubsystem>();
+		Subsystem = World->GetSubsystem<UGroundInteractionWorldSubsystem>();
 
 		OwnerSubsystem = Subsystem;
 	}
 
-	if (!Subsystem ||
-		!Subsystem->AreAssetsReady())
+	if (!Subsystem || !Subsystem->AreAssetsReady())
 	{
 		return;
 	}
@@ -297,23 +298,17 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 
 	if (!MaterialParameterCollection)
 	{
-		MaterialParameterCollection =
-			Subsystem->GetMaterialParameterCollection();
+		MaterialParameterCollection = Subsystem->GetMaterialParameterCollection();
 	}
 
-	if (!DepthRT ||
-		!FadeRT ||
-		!MaterialParameterCollection)
+	if (!DepthRT || !FadeRT || !MaterialParameterCollection)
 	{
 		return;
 	}
 
-	const UGroundInteractionSettings* Settings =
-		UGroundInteractionSettings::Get();
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
 
-	RenderTargetSize = Settings
-		? Settings->GetRenderTargetSize()
-		: FIntPoint(512, 512);
+	RenderTargetSize = Settings ? Settings->GetRenderTargetSize() : FIntPoint(512, 512);
 
 	ApplyOutputRenderTargets();
 
@@ -322,26 +317,15 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 			Settings->CaptureWorldExtent)
 		: FVector(1000.0f, 1000.0f, 1000.0f);
 
-	const float FadeRiseSpeed = Settings
-		? Settings->FadeRiseSpeed
-		: 150.0f;
+	const float FadeRiseSpeed = Settings ? Settings->FadeRiseSpeed : 150.0f;
 
-	const float FadeMaxHeight = Settings
-		? Settings->FadeMaxHeight
-		: 120.0f;
+	const float FadeMaxHeight = Settings ? Settings->FadeMaxHeight : 120.0f;
 
-	const float FadeUpdateIntervalSeconds = Settings
-		? Settings->GetDepthFadeUpdateIntervalSeconds()
-		: 1.0f / 60.0f;
+	const float FadeUpdateIntervalSeconds = Settings ? Settings->GetDepthFadeUpdateIntervalSeconds() : 1.0f / 60.0f;
 
-	const float CaptureUpdateIntervalSeconds = Settings
-		? Settings->GetDepthCaptureUpdateIntervalSeconds()
-		: 1.0f / 60.0f;
+	const float CaptureUpdateIntervalSeconds = Settings ? Settings->GetDepthCaptureUpdateIntervalSeconds() : 1.0f / 60.0f;
 
-	const FIntVector NumCell(
-		FMath::Max(RenderTargetSize.X, 1),
-		FMath::Max(RenderTargetSize.Y, 1),
-		1);
+	const FIntVector NumCell(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1), 1);
 
 	const FVector CellSpacing(
 		FMath::Max(CaptureExtent.X, 1.0f) * 2.0f / float(NumCell.X),
@@ -351,7 +335,6 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 	RegisteredScene = World->Scene;
 
 	RenderProxy = new FGroundInteractionRendererProxy(
-		this,
 		DepthRT->TextureReference.TextureReferenceRHI,
 		FadeRT->TextureReference.TextureReferenceRHI,
 		NumCell,
@@ -362,39 +345,26 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 		FadeUpdateIntervalSeconds,
 		CaptureUpdateIntervalSeconds);
 
-	FGroundInteractionRendererProxy* ProxyForCommand =
-		RenderProxy;
+	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
-	FSceneInterface* SceneForCommand =
-		RegisteredScene;
+	FSceneInterface* SceneForCommand = RegisteredScene;
 	
 	ENQUEUE_RENDER_COMMAND(GroundInteractionRegisterRendererProxy)(
 		[SceneForCommand, ProxyForCommand](FRHICommandListImmediate& RHICmdList)
 		{
-			FGroundInteractionRendererProxy::RegisterProxy(
-				SceneForCommand,
-				ProxyForCommand);
+			FGroundInteractionRendererProxy::RegisterProxy(SceneForCommand, ProxyForCommand);
 		});
-	
-	CurrentCaptureCenterWS = FVector(
-		TNumericLimits<double>::Max(),
-		TNumericLimits<double>::Max(),
-		TNumericLimits<double>::Max());
 }
 void UGroundInteractionRendererComponent::DestroyRenderProxy()
 {
-	check(IsInGameThread());
-
 	if (!RenderProxy)
 	{
 		return;
 	}
 
-	FGroundInteractionRendererProxy* ProxyForCommand =
-		RenderProxy;
+	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
-	FSceneInterface* SceneForCommand =
-		RegisteredScene;
+	FSceneInterface* SceneForCommand = RegisteredScene;
 
 	RenderProxy = nullptr;
 	RegisteredScene = nullptr;
@@ -406,9 +376,7 @@ void UGroundInteractionRendererComponent::DestroyRenderProxy()
 			{
 				ProxyForCommand->Release();
 				
-				FGroundInteractionRendererProxy::UnregisterProxy(
-					SceneForCommand,
-					ProxyForCommand);
+				FGroundInteractionRendererProxy::UnregisterProxy(SceneForCommand, ProxyForCommand);
 			});
 	}
 
@@ -417,23 +385,14 @@ void UGroundInteractionRendererComponent::DestroyRenderProxy()
 
 void UGroundInteractionRendererComponent::ApplyOutputRenderTargets()
 {
-	check(IsInGameThread());
-
-	if (!DepthRT ||
-		!FadeRT)
+	if (!DepthRT || !FadeRT)
 	{
 		return;
 	}
 
-	InitOutputRenderTarget(
-		DepthRT,
-		RenderTargetSize,
-		FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+	InitOutputRenderTarget(DepthRT, RenderTargetSize, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
 
-	InitOutputRenderTarget(
-		FadeRT,
-		RenderTargetSize,
-		FLinearColor(-32768.0f, 0.0f, 0.0f, 0.0f));
+	InitOutputRenderTarget(FadeRT, RenderTargetSize, FLinearColor(-32768.0f, 0.0f, 0.0f, 0.0f));
 }
 
 bool UGroundInteractionRendererComponent::InitOutputRenderTarget(
@@ -441,16 +400,12 @@ bool UGroundInteractionRendererComponent::InitOutputRenderTarget(
 	const FIntPoint& Size,
 	const FLinearColor& ClearColor) const
 {
-	check(IsInGameThread());
-
 	if (!RenderTarget)
 	{
 		return false;
 	}
 
-	const FIntPoint SafeSize(
-		FMath::Max(Size.X, 16),
-		FMath::Max(Size.Y, 16));
+	const FIntPoint SafeSize(FMath::Max(Size.X, 16), FMath::Max(Size.Y, 16));
 
 	const bool bNeedsInit =
 		RenderTarget->SizeX != SafeSize.X ||
@@ -479,33 +434,6 @@ bool UGroundInteractionRendererComponent::InitOutputRenderTarget(
 	RenderTarget->Filter = TF_Nearest;
 	RenderTarget->InitAutoFormat(SafeSize.X, SafeSize.Y);
 	RenderTarget->UpdateResourceImmediate(true);
-
-	return true;
-}
-
-bool UGroundInteractionRendererComponent::GetPlayerCameraLocation(
-	FVector& OutCameraLocationWS) const
-{
-	check(IsInGameThread());
-
-	UWorld* World = GetWorld();
-	if (!World ||
-		World->IsNetMode(NM_DedicatedServer))
-	{
-		return false;
-	}
-
-	APlayerController* PlayerController =
-		World->GetFirstPlayerController();
-
-	if (!PlayerController ||
-		!PlayerController->PlayerCameraManager)
-	{
-		return false;
-	}
-
-	OutCameraLocationWS =
-		PlayerController->PlayerCameraManager->GetCameraLocation();
 
 	return true;
 }

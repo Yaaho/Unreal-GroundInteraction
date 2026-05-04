@@ -21,57 +21,21 @@ bool FGroundInteractionSceneViewExtension::IsActiveThisFrame_Internal(
 		return false;
 	}
 
-	const UGroundInteractionWorldSubsystem* Subsystem =
-		OwnerSubsystem.Get();
+	const UGroundInteractionWorldSubsystem* Subsystem = OwnerSubsystem.Get();
 
-	if (!Subsystem ||
-		!Subsystem->AreAssetsReady())
+	if (!Subsystem || !Subsystem->AreAssetsReady())
 	{
 		return false;
 	}
 
-	UWorld* CurrentWorld =
-		Subsystem->GetWorld();
+	UWorld* CurrentWorld = Subsystem->GetWorld();
 
 	if (!CurrentWorld)
 	{
 		return false;
 	}
 
-	return
-		CurrentWorld->WorldType == EWorldType::PIE ||
-		CurrentWorld->WorldType == EWorldType::Game;
-}
-
-
-void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(
-	FSceneViewFamily& InViewFamily)
-{
-	UGroundInteractionWorldSubsystem* Subsystem =
-		OwnerSubsystem.Get();
-
-	if (!Subsystem ||
-		!Subsystem->AreAssetsReady() ||
-		!InViewFamily.Scene)
-	{
-		return;
-	}
-
-	if (InViewFamily.Views.Num() > 0)
-	{
-		const FSceneView* FirstView =
-			InViewFamily.Views[0];
-
-		if (FirstView &&
-			(FirstView->bIsSceneCapture ||
-			 FirstView->bIsReflectionCapture))
-		{
-			return;
-		}
-	}
-
-	Subsystem->PrepareRendererFrame_GameThread(
-		InViewFamily);
+	return CurrentWorld->WorldType == EWorldType::PIE || CurrentWorld->WorldType == EWorldType::Game;
 }
 
 
@@ -79,25 +43,19 @@ void FGroundInteractionSceneViewExtension::PreRenderViewFamily_RenderThread(
 	FRDGBuilder& GraphBuilder,
 	FSceneViewFamily& InViewFamily)
 {
-	if (!InViewFamily.Scene ||
-		InViewFamily.Views.Num() == 0)
+	if (!InViewFamily.Scene || InViewFamily.Views.Num() == 0)
 	{
 		return;
 	}
 
-	const FSceneView* PrimaryView =
-		InViewFamily.Views[0];
+	const FSceneView* PrimaryView = InViewFamily.Views[0];
 
-	if (!PrimaryView ||
-		PrimaryView->bIsSceneCapture ||
-		PrimaryView->bIsReflectionCapture)
+	if (!PrimaryView || PrimaryView->bIsSceneCapture || PrimaryView->bIsReflectionCapture)
 	{
 		return;
 	}
 
-	TArray<FGroundInteractionRendererProxy*> Proxies =
-		FGroundInteractionRendererProxy::GetProxies(
-			InViewFamily.Scene);
+	TArray<FGroundInteractionRendererProxy*> Proxies = FGroundInteractionRendererProxy::GetProxies(InViewFamily.Scene);
 
 	for (FGroundInteractionRendererProxy* Proxy : Proxies)
 	{
@@ -106,8 +64,6 @@ void FGroundInteractionSceneViewExtension::PreRenderViewFamily_RenderThread(
 			continue;
 		}
 
-		Proxy->Render(
-			GraphBuilder,
-			InViewFamily);
+		Proxy->Render(GraphBuilder, InViewFamily);
 	}
 }
