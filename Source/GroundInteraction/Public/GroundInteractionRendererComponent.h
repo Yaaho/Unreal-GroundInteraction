@@ -10,7 +10,6 @@ class FGroundInteractionRendererProxy;
 class UGroundInteractionWorldSubsystem;
 class UMaterialParameterCollection;
 class UTextureRenderTarget2D;
-class FSceneViewFamily;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class GROUNDINTERACTION_API UGroundInteractionRendererComponent : public USceneComponent
@@ -32,6 +31,9 @@ public:
 	
 	// 컴포넌트의 트랜스폼이 변경되었을 때 스냅된 위치를 프록시와 MPC 에 전달
 	virtual void SendRenderTransform_Concurrent() override;
+	
+	// 설정된 프로퍼티가 바뀔때마다 markrenderdynamicdatadirty 를 실행시킨다.
+	// renderdynamicdata concurrent 에서 바뀐 컴포넌트의 프로퍼티를 프록시에 반영
 
 	// RT size 변경, 프리미티브 컬링, 프록시 상태 전송 등을 담당 
 	virtual void TickComponent(
