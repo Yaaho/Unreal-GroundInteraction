@@ -34,6 +34,11 @@ public:
 	{
 		return InteractionPrimitives;
 	}
+	
+	UGroundInteractionRendererComponent* GetRendererComponent() const
+	{
+		return RendererComponent;
+	}
 
 	UTextureRenderTarget2D* GetDepthRT() const
 	{

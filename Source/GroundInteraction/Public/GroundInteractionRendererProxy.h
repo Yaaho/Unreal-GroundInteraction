@@ -71,7 +71,7 @@ public:
 	// Depth Capture CustomRenderPass 추가 함수
 	// 게임 스레드에서 호출됨
 	void QueueDepthCapture_GameThread(
-		FSceneInterface* Scene,
+		FSceneViewFamily&InViewFamily,
 		const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
 		const FVector& CaptureViewLocation,
 		const FIntPoint& CaptureRenderTargetSize);
@@ -103,6 +103,7 @@ public:
 		const FIntPoint& PassRenderTargetSize,
 		float PassMaxSceneDepth,
 		float PassSceneDepthInvalidEpsilon,
+		const FVector& PassCaptureViewLocation,
 		ERHIFeatureLevel::Type FeatureLevel);
 	
 public:

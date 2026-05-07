@@ -11,9 +11,8 @@
 
 UGroundInteractionRendererComponent::UGroundInteractionRendererComponent()
 {
-	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.bStartWithTickEnabled = true;
-	PrimaryComponentTick.TickGroup = TG_PostUpdateWork;
+	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
 void UGroundInteractionRendererComponent::OnRegister()
@@ -110,12 +109,11 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 }
 
 
-void UGroundInteractionRendererComponent::TickComponent(
-	float DeltaTime,
-	ELevelTick TickType,
-	FActorComponentTickFunction* ThisTickFunction)
+void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily, FSceneView& InView)
 {
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	check(IsInGameThread());
+
+	(void)InView;
 
 	if (!RenderProxy)
 	{
@@ -157,8 +155,9 @@ void UGroundInteractionRendererComponent::TickComponent(
 
 		bRenderTargetChanged = true;
 
+		// RT size 변경 시 capture accumulator 초기화
 		DepthCaptureUpdateAccumulatorSeconds = 0.0f;
-		
+
 		SendRenderTransform_Concurrent();
 	}
 
@@ -167,41 +166,33 @@ void UGroundInteractionRendererComponent::TickComponent(
 		return;
 	}
 
-	const FVector CaptureExtentWS = GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent);
+	if (bRenderTargetChanged)
+	{
+		FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
-	const FVector RawCaptureCenterWS = GetComponentLocation();
-	
-	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCaptureCenterWS, CaptureExtentWS, RenderTargetSize);
+		const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
 
-	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
-
-	const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
-
-	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyFrameState)(
-		[
-			ProxyForCommand,
-			RenderTargetSizeForCommand,
-			SnappedCaptureCenterWS,
-			bRenderTargetChanged
-		](FRHICommandListImmediate& RHICmdList)
-		{
-			if (!ProxyForCommand)
+		ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyRenderTargetSize)(
+			[
+				ProxyForCommand,
+				RenderTargetSizeForCommand
+			](FRHICommandListImmediate& RHICmdList)
 			{
-				return;
-			}
-
-			ProxyForCommand->RenderTargetSize = RenderTargetSizeForCommand;
-			ProxyForCommand->CurrentSnappedLocation = SnappedCaptureCenterWS;
-
-			if (bRenderTargetChanged)
-			{
+				if (!ProxyForCommand)
+				{
+					return;
+				}
+				
+				ProxyForCommand->RenderTargetSize = RenderTargetSizeForCommand;
 				ProxyForCommand->bRenderTargetChanged = true;
-			}
-		});
+			});
+	}
 
 	const float CaptureUpdateIntervalSeconds = Settings->GetDepthCaptureUpdateIntervalSeconds();
 
-	DepthCaptureUpdateAccumulatorSeconds += FMath::Max(DeltaTime, 0.0f);
+	const float DeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0f);
+
+	DepthCaptureUpdateAccumulatorSeconds += DeltaTimeSeconds;
 
 	if (DepthCaptureUpdateAccumulatorSeconds < CaptureUpdateIntervalSeconds)
 	{
@@ -211,11 +202,16 @@ void UGroundInteractionRendererComponent::TickComponent(
 	const int32 CaptureStepCount = FMath::Max(FMath::FloorToInt(DepthCaptureUpdateAccumulatorSeconds / CaptureUpdateIntervalSeconds), 1);
 
 	DepthCaptureUpdateAccumulatorSeconds -= static_cast<float>(CaptureStepCount) * CaptureUpdateIntervalSeconds;
+
+	const FVector CaptureExtentWS = GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent);
+
+	const FVector RawCaptureCenterWS = GetComponentLocation();
+
+	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCaptureCenterWS, CaptureExtentWS, RenderTargetSize);
 	
 	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
 
-	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives =
-		Subsystem->GetInteractionPrimitives();
+	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives = Subsystem->GetInteractionPrimitives();
 
 	const FBox CaptureCullBox(SnappedCaptureCenterWS - CaptureExtentWS, SnappedCaptureCenterWS + CaptureExtentWS);
 
@@ -239,16 +235,9 @@ void UGroundInteractionRendererComponent::TickComponent(
 		return;
 	}
 
-	UWorld* World = GetWorld();
-
-	if (!World || !World->Scene)
-	{
-		return;
-	}
-
 	const FVector CaptureViewLocation = GroundInteractionCommon::GetCaptureOriginWS(SnappedCaptureCenterWS, CaptureExtentWS);
 
-	RenderProxy->QueueDepthCapture_GameThread(World->Scene, ShowOnlyPrimitives, CaptureViewLocation, RenderTargetSize);
+	RenderProxy->QueueDepthCapture_GameThread(InViewFamily, ShowOnlyPrimitives, CaptureViewLocation, RenderTargetSize);
 }
 
 

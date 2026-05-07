@@ -3,6 +3,7 @@
 #include "GroundInteractionSceneViewExtension.h"
 #include "GroundInteractionWorldSubsystem.h"
 #include "GroundInteractionRendererProxy.h"
+#include "GroundInteractionRendererComponent.h"
 
 FGroundInteractionSceneViewExtension::FGroundInteractionSceneViewExtension(
 	const FAutoRegister& AutoRegister,
@@ -38,10 +39,44 @@ bool FGroundInteractionSceneViewExtension::IsActiveThisFrame_Internal(
 	return CurrentWorld->WorldType == EWorldType::PIE || CurrentWorld->WorldType == EWorldType::Game;
 }
 
+void FGroundInteractionSceneViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView)
+{
+	if (!InViewFamily.Scene || InViewFamily.Views.Num() == 0)
+	{
+		return;
+	}
 
-void FGroundInteractionSceneViewExtension::PreRenderViewFamily_RenderThread(
-	FRDGBuilder& GraphBuilder,
-	FSceneViewFamily& InViewFamily)
+	const FSceneView* PrimaryView = InViewFamily.Views[0];
+	
+	if (!PrimaryView || PrimaryView != &InView)
+	{
+		return;
+	}
+
+	if (InView.bIsSceneCapture || InView.bIsReflectionCapture)
+	{
+		return;
+	}
+
+	UGroundInteractionWorldSubsystem* Subsystem = OwnerSubsystem.Get();
+
+	if (!Subsystem || !Subsystem->AreAssetsReady())
+	{
+		return;
+	}
+
+	UGroundInteractionRendererComponent* RendererComponent = Subsystem->GetRendererComponent();
+
+	if (!RendererComponent)
+	{
+		return;
+	}
+
+	RendererComponent->UpdateAndQueueDepthCapture_GameThread(InViewFamily, InView);
+}
+
+
+void FGroundInteractionSceneViewExtension::PreRenderViewFamily_RenderThread(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily)
 {
 	if (!InViewFamily.Scene || InViewFamily.Views.Num() == 0)
 	{

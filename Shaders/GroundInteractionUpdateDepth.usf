@@ -7,8 +7,10 @@ RWTexture2D<float> FadeTexture;
 Texture2D<float> CurrentDepthTexture;
 
 int2 NumCells;
+int2 CaptureScrollPixels;
 float MaxSceneDepth;
 float SceneDepthInvalidEpsilon;
+float CaptureDepthOffsetZ;
 
 [numthreads(GI_THREADGROUP_SIZE_X, GI_THREADGROUP_SIZE_Y, GI_THREADGROUP_SIZE_Z)]
 void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
@@ -29,15 +31,27 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 		Fade = GI_InvalidFadeHeight;
 	}
 
-	const float SceneDepth = CurrentDepthTexture.Load(int3(Pixel, 0)).r;
+	const int2 CapturedDepthPixel = Pixel + CaptureScrollPixels;
+
+	float SceneDepth = GI_InvalidBaseDepth;
+
+	if (CapturedDepthPixel.x >= 0 && CapturedDepthPixel.y >= 0 && CapturedDepthPixel.x < NumCells.x && CapturedDepthPixel.y < NumCells.y)
+	{
+		SceneDepth = CurrentDepthTexture.Load(int3(CapturedDepthPixel, 0)).r;
+	}
 
 	// 현재 위치에 프록시가 있으면 새 contact로 취급.
 	// R = base depth
 	// G = fade height, contact 순간에는 0
 	if (GI_IsValidSceneDepth(SceneDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
 	{
-		Depth = SceneDepth;
-		Fade = 0.0f;
+		const float RebasedSceneDepth = SceneDepth + CaptureDepthOffsetZ;
+
+		if (GI_IsValidSceneDepth(RebasedSceneDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
+		{
+			Depth = RebasedSceneDepth;
+			Fade = 0.0f;
+		}
 	}
 
 	DepthTexture[Pixel] = Depth;

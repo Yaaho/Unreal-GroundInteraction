@@ -28,11 +28,9 @@ namespace GroundInteractionCommon
 		const FVector& CaptureExtentWS,
 		const FIntPoint& RenderTargetSize)
 	{
-		const FVector SafeExtentWS =
-			MakeSafeCaptureExtent(CaptureExtentWS);
+		const FVector SafeExtentWS = MakeSafeCaptureExtent(CaptureExtentWS);
 
-		const FIntPoint SafeSize =
-			MakeSafeRenderTargetSize(RenderTargetSize);
+		const FIntPoint SafeSize = MakeSafeRenderTargetSize(RenderTargetSize);
 
 		return FVector2D(
 			SafeExtentWS.X * 2.0 / static_cast<double>(SafeSize.X),

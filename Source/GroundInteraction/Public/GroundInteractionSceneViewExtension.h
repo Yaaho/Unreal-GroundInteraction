@@ -17,13 +17,12 @@ public:
 
 	virtual ~FGroundInteractionSceneViewExtension() override = default;
 
-	virtual bool IsActiveThisFrame_Internal(
-		const FSceneViewExtensionContext& Context) const override;
+	virtual bool IsActiveThisFrame_Internal(const FSceneViewExtensionContext& Context) const override;
+	
+	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override;
 	
 	// 프록시의 렌더 함수 호출
-	virtual void PreRenderViewFamily_RenderThread(
-		FRDGBuilder& GraphBuilder,
-		FSceneViewFamily& InViewFamily) override;
+	virtual void PreRenderViewFamily_RenderThread(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily) override;
 
 private:
 	TWeakObjectPtr<UGroundInteractionWorldSubsystem> OwnerSubsystem;

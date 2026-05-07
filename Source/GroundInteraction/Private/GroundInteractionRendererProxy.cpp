@@ -1,6 +1,7 @@
 // Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GroundInteractionRendererProxy.h"
+#include "GroundInteractionCommon.h" 
 
 #include "RenderTargetPool.h"
 #include "Rendering/CustomRenderPass.h"
@@ -127,8 +128,10 @@ public:
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(FIntPoint, NumCells)
+		SHADER_PARAMETER(FIntPoint, CaptureScrollPixels) 
 		SHADER_PARAMETER(float, MaxSceneDepth)
 		SHADER_PARAMETER(float, SceneDepthInvalidEpsilon)
+		SHADER_PARAMETER(float, CaptureDepthOffsetZ)
 
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, CurrentDepthTexture)
 
@@ -229,12 +232,13 @@ public:
 		}
 		
 		OwnerProxy->UpdateCapturedDepth(
-			GraphBuilder,
-			CapturedDepthTexture,
-			RenderTargetSize,
-			MaxDepth,
-			SceneDepthInvalidEpsilon,
-			Views[0]->GetFeatureLevel());
+		GraphBuilder,
+		CapturedDepthTexture,
+		RenderTargetSize,
+		MaxDepth,
+		SceneDepthInvalidEpsilon,
+		CaptureViewLocation,
+		Views[0]->GetFeatureLevel());
 	}
 
 private:
@@ -369,8 +373,10 @@ static void AddUpdateDepthPass(
 	FRDGTextureUAVRef FadeTextureUAV,
 	FRDGTextureRef CapturedDepthTexture,
 	const FIntPoint& RenderTargetSize,
+	const FIntPoint& CaptureScrollPixels,
 	float MaxSceneDepth,
-	float SceneDepthInvalidEpsilon)
+	float SceneDepthInvalidEpsilon,
+	float CaptureDepthOffsetZ)
 {
 	FUpdateDepthCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FUpdateDepthCS::FParameters>();
 
@@ -379,8 +385,10 @@ static void AddUpdateDepthPass(
 		FMath::Max(RenderTargetSize.Y, 1));
 
 	PassParameters->NumCells = NumCells;
+	PassParameters->CaptureScrollPixels = CaptureScrollPixels;
 	PassParameters->MaxSceneDepth = MaxSceneDepth;
 	PassParameters->SceneDepthInvalidEpsilon = SceneDepthInvalidEpsilon;
+	PassParameters->CaptureDepthOffsetZ = CaptureDepthOffsetZ;
 	PassParameters->CurrentDepthTexture = CapturedDepthTexture;
 	PassParameters->DepthTexture = DepthTextureUAV;
 	PassParameters->FadeTexture = FadeTextureUAV;
@@ -609,7 +617,7 @@ void FGroundInteractionRendererProxy::Render(
 	
 	if (bHasPreviousCapture)
 	{
-		const FVector2D UnitsPerPixel(CaptureExtentWS.X * 2.0 / static_cast<double>(RenderTargetSize.X), CaptureExtentWS.Y * 2.0 / static_cast<double>(RenderTargetSize.Y));
+		const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(CaptureExtentWS, RenderTargetSize);
 
 		CaptureScrollPixels.X = FMath::RoundToInt((CurrentSnappedLocation.X - PreviousSnappedLocation.X) / UnitsPerPixel.X);
 
@@ -743,14 +751,14 @@ void FGroundInteractionRendererProxy::Render(
 
 
 void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(
-	FSceneInterface* Scene,
+	FSceneViewFamily& InViewFamily,
 	const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
 	const FVector& CaptureViewLocation,
 	const FIntPoint& CaptureRenderTargetSize)
 {
 	check(IsInGameThread());
 
-	if (!Scene || InShowOnlyPrimitives.Num() <= 0)
+	if (!InViewFamily.Scene || InShowOnlyPrimitives.Num() <= 0)
 	{
 		return;
 	}
@@ -791,14 +799,9 @@ void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(
 	PassInput.EngineShowFlags.SetDynamicShadows(false);
 	PassInput.EngineShowFlags.SetTranslucency(false);
 
-	PassInput.CustomRenderPass = new FDepthCapturePass(
-			SafeRenderTargetSize,
-			this,
-			CaptureViewLocation,
-			MaxDepth,
-			GetSceneDepthInvalidEpsilon());
+	PassInput.CustomRenderPass = new FDepthCapturePass(SafeRenderTargetSize, this, CaptureViewLocation, MaxDepth, GetSceneDepthInvalidEpsilon());
 	
-	Scene->AddCustomRenderPass(nullptr, PassInput);
+	InViewFamily.Scene->AddCustomRenderPass(&InViewFamily, PassInput);
 }
 
 
@@ -871,6 +874,7 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 	const FIntPoint& PassRenderTargetSize,
 	float PassMaxSceneDepth,
 	float PassSceneDepthInvalidEpsilon,
+	const FVector& PassCaptureViewLocation,
 	ERHIFeatureLevel::Type FeatureLevel)
 {
 	check(IsInRenderingThread());
@@ -906,7 +910,25 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 	{
 		return;
 	}
+	
+	const FIntPoint SafeRenderTargetSize(FMath::Max(PassRenderTargetSize.X, 1), FMath::Max(PassRenderTargetSize.Y, 1));
 
+	const FVector CurrentCaptureViewLocation = GetCaptureOriginWS();
+
+	const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(CaptureExtentWS, SafeRenderTargetSize); // [변경] 공통 함수 사용
+
+	// PassCaptureViewLocation 와 CurrentCaptureViewLocation 의 픽셀 오프셋 차이 계산
+	const FIntPoint CaptureScrollPixels(
+		FMath::RoundToInt(
+			(CurrentCaptureViewLocation.X - PassCaptureViewLocation.X) /
+			UnitsPerPixel.X),
+		-FMath::RoundToInt(
+			(CurrentCaptureViewLocation.Y - PassCaptureViewLocation.Y) /
+			UnitsPerPixel.Y));
+	
+	// PassCaptureViewLocation 와 CurrentCaptureViewLocation 의 Z 위치 차이 계산
+	const float CaptureDepthOffsetZ = static_cast<float>(PassCaptureViewLocation.Z - CurrentCaptureViewLocation.Z);
+	
 	GraphBuilder.UseInternalAccessMode(DepthTexture);
 	GraphBuilder.UseInternalAccessMode(FadeTexture);
 
@@ -916,12 +938,13 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 		DepthUAV,
 		FadeUAV,
 		CapturedDepthTexture,
-		PassRenderTargetSize,
+		SafeRenderTargetSize,
+		CaptureScrollPixels,
 		PassMaxSceneDepth,
-		PassSceneDepthInvalidEpsilon);
+		PassSceneDepthInvalidEpsilon,
+		CaptureDepthOffsetZ);
 
 	GraphBuilder.UseExternalAccessMode(DepthTexture, ERHIAccess::SRVMask);
-
 	GraphBuilder.UseExternalAccessMode(FadeTexture, ERHIAccess::SRVMask);
 
 	// 첫 capture 성공 이후부터 Move history 를 사용할 수 있게 한다.
