@@ -73,4 +73,7 @@ private:
 	FSceneInterface* RegisteredScene = nullptr;
 	
 	FIntPoint RenderTargetSize = FIntPoint::ZeroValue;
+	
+	// Depth Capture 주기 설정
+	float DepthCaptureUpdateAccumulatorSeconds = 0.0f;
 };

@@ -59,8 +59,7 @@ public:
 		const FVector& InCaptureExtentWS,
 		float InFadeRiseSpeed,
 		float InFadeMaxHeight,
-		float InFadeUpdateIntervalSeconds,
-		float InCaptureUpdateIntervalSeconds);
+		float InFadeUpdateIntervalSeconds);
 	
 	virtual ~FGroundInteractionRendererProxy() override = default;
 
@@ -68,6 +67,14 @@ public:
 	void Render(
 		FRDGBuilder& GraphBuilder,
 		FSceneViewFamily& InViewFamily);
+	
+	// Depth Capture CustomRenderPass 추가 함수
+	// 게임 스레드에서 호출됨
+	void QueueDepthCapture_GameThread(
+		FSceneInterface* Scene,
+		const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
+		const FVector& CaptureViewLocation,
+		const FIntPoint& CaptureRenderTargetSize);
 	
 	// 컴포넌트 파괴 시 호출되는 함수
 	void Release();
@@ -89,11 +96,10 @@ public:
 	
 public:
 	// FDepthCapturePass::OnPostRender 에서 호출되는 함수
-	// custom depth capture 결과를 depth/fade texture에 반영하고 Output RT 에 복사하는 기능
+	// custom depth capture 결과를 CurrentStateIndex texture 에 반영
 	void UpdateCapturedDepth(
 		FRDGBuilder& GraphBuilder,
 		FRDGTextureRef CapturedDepthTexture,
-		int32 DepthFadeTextureId,
 		const FIntPoint& PassRenderTargetSize,
 		float PassMaxSceneDepth,
 		float PassSceneDepthInvalidEpsilon,
@@ -103,7 +109,6 @@ public:
 	// RendererComponent 에서 세팅하는 값들
 	FVector CurrentSnappedLocation = FVector::ZeroVector;
 	FIntPoint RenderTargetSize = FIntPoint(512, 512);
-	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
 	bool bRenderTargetChanged = false;
 	
 private:
@@ -192,14 +197,12 @@ private:
 	float FadeRiseSpeed = 150.0f;
 	float FadeMaxHeight = 120.0f;
 	float FadeUpdateIntervalSeconds = 1.0f / 60.0f;
-	float CaptureUpdateIntervalSeconds = 1.0f / 60.0f;
 
 	FPlaneTexture DepthFadeTextures[2][2];
 
 	int32 CurrentStateIndex = 0;
 
 	float FadeUpdateAccumulatorSeconds = 0.0f;
-	float CaptureUpdateAccumulatorSeconds = 0.0f;
 
 	bool bReleased = false;
 	bool bClearDepthFadeTextures = true;

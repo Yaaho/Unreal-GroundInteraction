@@ -48,6 +48,8 @@ void UGroundInteractionRendererComponent::InitializeRenderer(
 	MaterialParameterCollection = InMaterialParameterCollection;
 
 	RenderTargetSize = FIntPoint::ZeroValue;
+	
+	DepthCaptureUpdateAccumulatorSeconds = 0.0f;
 
 	if (IsRegistered())
 	{
@@ -108,11 +110,12 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 }
 
 
-void UGroundInteractionRendererComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void UGroundInteractionRendererComponent::TickComponent(
+	float DeltaTime,
+	ELevelTick TickType,
+	FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	(void)DeltaTime;
 
 	if (!RenderProxy)
 	{
@@ -153,6 +156,8 @@ void UGroundInteractionRendererComponent::TickComponent(float DeltaTime, ELevelT
 		ApplyOutputRenderTargets();
 
 		bRenderTargetChanged = true;
+
+		DepthCaptureUpdateAccumulatorSeconds = 0.0f;
 		
 		SendRenderTransform_Concurrent();
 	}
@@ -166,14 +171,51 @@ void UGroundInteractionRendererComponent::TickComponent(float DeltaTime, ELevelT
 
 	const FVector RawCaptureCenterWS = GetComponentLocation();
 	
-	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(
-			RawCaptureCenterWS,
-			CaptureExtentWS,
-			RenderTargetSize);
+	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCaptureCenterWS, CaptureExtentWS, RenderTargetSize);
 
+	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
+
+	const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
+
+	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyFrameState)(
+		[
+			ProxyForCommand,
+			RenderTargetSizeForCommand,
+			SnappedCaptureCenterWS,
+			bRenderTargetChanged
+		](FRHICommandListImmediate& RHICmdList)
+		{
+			if (!ProxyForCommand)
+			{
+				return;
+			}
+
+			ProxyForCommand->RenderTargetSize = RenderTargetSizeForCommand;
+			ProxyForCommand->CurrentSnappedLocation = SnappedCaptureCenterWS;
+
+			if (bRenderTargetChanged)
+			{
+				ProxyForCommand->bRenderTargetChanged = true;
+			}
+		});
+
+	const float CaptureUpdateIntervalSeconds = Settings->GetDepthCaptureUpdateIntervalSeconds();
+
+	DepthCaptureUpdateAccumulatorSeconds += FMath::Max(DeltaTime, 0.0f);
+
+	if (DepthCaptureUpdateAccumulatorSeconds < CaptureUpdateIntervalSeconds)
+	{
+		return;
+	}
+
+	const int32 CaptureStepCount = FMath::Max(FMath::FloorToInt(DepthCaptureUpdateAccumulatorSeconds / CaptureUpdateIntervalSeconds), 1);
+
+	DepthCaptureUpdateAccumulatorSeconds -= static_cast<float>(CaptureStepCount) * CaptureUpdateIntervalSeconds;
+	
 	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
 
-	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives = Subsystem->GetInteractionPrimitives();
+	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives =
+		Subsystem->GetInteractionPrimitives();
 
 	const FBox CaptureCullBox(SnappedCaptureCenterWS - CaptureExtentWS, SnappedCaptureCenterWS + CaptureExtentWS);
 
@@ -192,32 +234,21 @@ void UGroundInteractionRendererComponent::TickComponent(float DeltaTime, ELevelT
 		}
 	}
 
-	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
+	if (ShowOnlyPrimitives.Num() <= 0)
+	{
+		return;
+	}
 
-	const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
+	UWorld* World = GetWorld();
 
-	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyFrameState)(
-		[
-			ProxyForCommand,
-			RenderTargetSizeForCommand,
-			bRenderTargetChanged,
-			ShowOnlyPrimitivesForCommand = MoveTemp(ShowOnlyPrimitives)
-		](FRHICommandListImmediate& RHICmdList) mutable
-		{
-			if (!ProxyForCommand)
-			{
-				return;
-			}
+	if (!World || !World->Scene)
+	{
+		return;
+	}
 
-			ProxyForCommand->RenderTargetSize = RenderTargetSizeForCommand;
+	const FVector CaptureViewLocation = GroundInteractionCommon::GetCaptureOriginWS(SnappedCaptureCenterWS, CaptureExtentWS);
 
-			ProxyForCommand->ShowOnlyPrimitives = MoveTemp(ShowOnlyPrimitivesForCommand);
-
-			if (bRenderTargetChanged)
-			{
-				ProxyForCommand->bRenderTargetChanged = true;
-			}
-		});
+	RenderProxy->QueueDepthCapture_GameThread(World->Scene, ShowOnlyPrimitives, CaptureViewLocation, RenderTargetSize);
 }
 
 
@@ -260,7 +291,6 @@ void UGroundInteractionRendererComponent::UpdateMPC(
 
 void UGroundInteractionRendererComponent::CreateRenderProxy()
 {
-
 	if (RenderProxy)
 	{
 		return;
@@ -312,18 +342,13 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 
 	ApplyOutputRenderTargets();
 
-	const FVector CaptureExtent = Settings
-		? GroundInteractionCommon::MakeSafeCaptureExtent(
-			Settings->CaptureWorldExtent)
-		: FVector(1000.0f, 1000.0f, 1000.0f);
+	const FVector CaptureExtent = Settings ? GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent) : FVector(1000.0f, 1000.0f, 1000.0f);
 
 	const float FadeRiseSpeed = Settings ? Settings->FadeRiseSpeed : 150.0f;
 
 	const float FadeMaxHeight = Settings ? Settings->FadeMaxHeight : 120.0f;
 
 	const float FadeUpdateIntervalSeconds = Settings ? Settings->GetDepthFadeUpdateIntervalSeconds() : 1.0f / 60.0f;
-
-	const float CaptureUpdateIntervalSeconds = Settings ? Settings->GetDepthCaptureUpdateIntervalSeconds() : 1.0f / 60.0f;
 
 	const FIntVector NumCell(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1), 1);
 
@@ -342,8 +367,7 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 		CaptureExtent,
 		FadeRiseSpeed,
 		FadeMaxHeight,
-		FadeUpdateIntervalSeconds,
-		CaptureUpdateIntervalSeconds);
+		FadeUpdateIntervalSeconds);
 
 	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
@@ -355,6 +379,8 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 			FGroundInteractionRendererProxy::RegisterProxy(SceneForCommand, ProxyForCommand);
 		});
 }
+
+
 void UGroundInteractionRendererComponent::DestroyRenderProxy()
 {
 	if (!RenderProxy)
