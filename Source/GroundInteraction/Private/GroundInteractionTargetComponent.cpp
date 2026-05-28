@@ -2,6 +2,7 @@
 
 
 #include "GroundInteractionTargetComponent.h"
+#include "GroundInteractionProxyMeshComponent.h"
 #include "GroundInteractionWorldSubsystem.h"
 #include "GameFramework/Character.h"
 #include "PhysicsEngine/SkeletalBodySetup.h"
@@ -257,9 +258,9 @@ UStaticMeshComponent* UGroundInteractionTargetComponent::CreateProxy(
 		return nullptr;
 	}
 
-	UStaticMeshComponent* ProxyComp = NewObject<UStaticMeshComponent>(
+	UGroundInteractionProxyMeshComponent* ProxyComp = NewObject<UGroundInteractionProxyMeshComponent>(
 		OwnerActor,
-		MakeUniqueObjectName(OwnerActor, UStaticMeshComponent::StaticClass(), TEXT("GIProxy")));
+		MakeUniqueObjectName(OwnerActor, UGroundInteractionProxyMeshComponent::StaticClass(), TEXT("GIProxy")));
 
 	if (!ProxyComp)
 	{
@@ -274,14 +275,10 @@ UStaticMeshComponent* UGroundInteractionTargetComponent::CreateProxy(
 	ProxyComp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ProxyComp->SetGenerateOverlapEvents(false);
 	ProxyComp->SetCastShadow(false);
-	ProxyComp->SetVisibleInSceneCaptureOnly(true);
 	ProxyComp->SetReceivesDecals(false);
 	ProxyComp->bCastDynamicShadow = false;
 	ProxyComp->bAffectDistanceFieldLighting = false;
 	
-	// 이 인터렉션 타겟 프록시 컴포넌트는 SparsePixelate 에서 제외된다.
-	ProxyComp->ComponentTags.Add(TEXT("ExcludeFromSparsePixelate"));
-
 	const FVector SourceFullSize = StaticMesh->GetBounds().BoxExtent * 2.0f;
 	const FVector SafeSourceSize(
 		FMath::Max(SourceFullSize.X, 1.0f),

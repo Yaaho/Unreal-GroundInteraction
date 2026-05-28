@@ -282,9 +282,7 @@ static void AddMovePass(
 {
 	FMoveCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FMoveCS::FParameters>();
 
-	const FIntPoint NumCells(
-		FMath::Max(RenderTargetSize.X, 1),
-		FMath::Max(RenderTargetSize.Y, 1));
+	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
 	PassParameters->NumCells = NumCells;
 	PassParameters->ScrollPixels = ScrollPixels;
@@ -333,9 +331,7 @@ static void AddFadePass(
 {
 	FFadeCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FFadeCS::FParameters>();
 
-	const FIntPoint NumCells(
-		FMath::Max(RenderTargetSize.X, 1),
-		FMath::Max(RenderTargetSize.Y, 1));
+	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
 	PassParameters->NumCells = NumCells;
 	PassParameters->DeltaTimeSeconds = FadeDeltaTimeSeconds;
@@ -380,9 +376,7 @@ static void AddUpdateDepthPass(
 {
 	FUpdateDepthCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FUpdateDepthCS::FParameters>();
 
-	const FIntPoint NumCells(
-		FMath::Max(RenderTargetSize.X, 1),
-		FMath::Max(RenderTargetSize.Y, 1));
+	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
 	PassParameters->NumCells = NumCells;
 	PassParameters->CaptureScrollPixels = CaptureScrollPixels;
@@ -415,42 +409,28 @@ static void AddUpdateDepthPass(
 }
 
 
-bool FPlaneTexture::CheckPooledTarget(
-	FRHICommandListImmediate& RHICmdList,
-	const FIntPoint& InSize,
-	EPixelFormat InFormat,
-	const TCHAR* DebugName)
+bool FPlaneTexture::CheckPooledTarget(FRHICommandListImmediate& RHICmdList, const FIntPoint& InSize, EPixelFormat InFormat, const TCHAR* DebugName)
 {
-	const FIntPoint SafeSize(
-		FMath::Max(InSize.X, 1),
-		FMath::Max(InSize.Y, 1));
+	const FIntPoint SafeSize(FMath::Max(InSize.X, 1), FMath::Max(InSize.Y, 1));
 
-	const bool bNeedsAlloc =
-		!PooledTarget.IsValid() ||
-		AllocatedSize != SafeSize ||
-		AllocatedFormat != InFormat;
+	const bool bNeedsAlloc = !PooledTarget.IsValid() || AllocatedSize != SafeSize || AllocatedFormat != InFormat;
 
 	if (!bNeedsAlloc)
 	{
 		return false;
 	}
 
-	FPooledRenderTargetDesc Desc =
-		FPooledRenderTargetDesc::Create2DDesc(
-			SafeSize,
-			InFormat,
-			FClearValueBinding::None,
-			TexCreate_None,
-			TexCreate_ShaderResource | TexCreate_UAV,
-			false);
+	FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(
+		SafeSize,
+		InFormat,
+		FClearValueBinding::None,
+		TexCreate_None,
+		TexCreate_ShaderResource | TexCreate_UAV,
+		false);
 
 	Desc.DebugName = DebugName;
 
-	GRenderTargetPool.FindFreeElement(
-		RHICmdList,
-		Desc,
-		PooledTarget,
-		DebugName);
+	GRenderTargetPool.FindFreeElement(RHICmdList, Desc, PooledTarget, DebugName);
 
 	AllocatedSize = SafeSize;
 	AllocatedFormat = InFormat;
@@ -460,9 +440,7 @@ bool FPlaneTexture::CheckPooledTarget(
 	return true;
 }
 
-FRDGTextureRef FPlaneTexture::GetOrCreateTexture(
-	FRDGBuilder& GraphBuilder,
-	const TCHAR* Name)
+FRDGTextureRef FPlaneTexture::GetOrCreateTexture(FRDGBuilder& GraphBuilder, const TCHAR* Name)
 {
 	if (!PooledTarget.IsValid())
 	{
@@ -477,9 +455,7 @@ FRDGTextureRef FPlaneTexture::GetOrCreateTexture(
 	return TransientTextureRef;
 }
 
-FRDGTextureSRVRef FPlaneTexture::GetOrCreateSRV(
-	FRDGBuilder& GraphBuilder,
-	const TCHAR* Name)
+FRDGTextureSRVRef FPlaneTexture::GetOrCreateSRV(FRDGBuilder& GraphBuilder, const TCHAR* Name)
 {
 	FRDGTextureRef TextureRef = GetOrCreateTexture(GraphBuilder, Name);
 
@@ -496,9 +472,7 @@ FRDGTextureSRVRef FPlaneTexture::GetOrCreateSRV(
 	return TransientSRVRef;
 }
 
-FRDGTextureUAVRef FPlaneTexture::GetOrCreateUAV(
-	FRDGBuilder& GraphBuilder,
-	const TCHAR* Name)
+FRDGTextureUAVRef FPlaneTexture::GetOrCreateUAV(FRDGBuilder& GraphBuilder, const TCHAR* Name)
 {
 	FRDGTextureRef TextureRef = GetOrCreateTexture(GraphBuilder, Name);
 
@@ -681,14 +655,6 @@ void FGroundInteractionRendererProxy::Render(
 				GetSceneDepthInvalidEpsilon(),
 				true);
 
-			GraphBuilder.UseExternalAccessMode(PreviousDepthTexture, ERHIAccess::SRVMask);
-
-			GraphBuilder.UseExternalAccessMode(PreviousFadeTexture, ERHIAccess::SRVMask);
-
-			GraphBuilder.UseExternalAccessMode(CurrentDepthTexture, ERHIAccess::SRVMask);
-
-			GraphBuilder.UseExternalAccessMode(CurrentFadeTexture, ERHIAccess::SRVMask);
-
 			AdvanceDepthFadeTextureId();
 
 			// 스냅된 센터 위치 변경
@@ -739,10 +705,6 @@ void FGroundInteractionRendererProxy::Render(
 				FadeDeltaTimeSeconds,
 				FadeRiseSpeed,
 				FadeMaxHeight);
-
-			GraphBuilder.UseExternalAccessMode(DepthTexture, ERHIAccess::SRVMask);
-
-			GraphBuilder.UseExternalAccessMode(FadeTexture, ERHIAccess::SRVMask);
 		}
 	}
 
@@ -787,7 +749,6 @@ void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(
 	PassInput.ViewActor = nullptr;
 	PassInput.ShowOnlyPrimitives = InShowOnlyPrimitives;
 
-	PassInput.bIsSceneCapture = true;
 	PassInput.bUseMainViewFamilyShowFlags = false;
 
 	PassInput.EngineShowFlags = FEngineShowFlags(ESFIM_Game);
@@ -944,8 +905,8 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 		PassSceneDepthInvalidEpsilon,
 		CaptureDepthOffsetZ);
 
-	GraphBuilder.UseExternalAccessMode(DepthTexture, ERHIAccess::SRVMask);
-	GraphBuilder.UseExternalAccessMode(FadeTexture, ERHIAccess::SRVMask);
+	GraphBuilder.SetTextureAccessFinal(DepthTexture, ERHIAccess::SRVMask);
+	GraphBuilder.SetTextureAccessFinal(FadeTexture, ERHIAccess::SRVMask);
 
 	// 첫 capture 성공 이후부터 Move history 를 사용할 수 있게 한다.
 	if (!bHasPreviousCapture)
@@ -1051,9 +1012,8 @@ void FGroundInteractionRendererProxy::CheckDepthFadeTextures(
 			FadeUAV,
 			FVector4f(-32768.0f, 0.0f, 0.0f, 0.0f));
 
-		GraphBuilder.UseExternalAccessMode(DepthTexture, ERHIAccess::SRVMask);
-
-		GraphBuilder.UseExternalAccessMode(FadeTexture, ERHIAccess::SRVMask);
+		GraphBuilder.SetTextureAccessFinal(DepthTexture, ERHIAccess::SRVMask);
+		GraphBuilder.SetTextureAccessFinal(FadeTexture, ERHIAccess::SRVMask);
 	}
 }
 
@@ -1098,27 +1058,13 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
 
 	FPlaneTexture& Fade = DepthFadeTextures[DepthFadeTextureId][DEPTH_FADE_CHANNEL_FADE];
 
-	FRDGTextureRef DepthTexture =
-		Depth.GetOrCreateTexture(
-			GraphBuilder,
-			TEXT("Copy_Depth"));
+	FRDGTextureRef DepthTexture = Depth.GetOrCreateTexture(GraphBuilder, TEXT("Copy_Depth"));
 
-	FRDGTextureRef FadeTexture =
-		Fade.GetOrCreateTexture(
-			GraphBuilder,
-			TEXT("Copy_Fade"));
+	FRDGTextureRef FadeTexture = Fade.GetOrCreateTexture(GraphBuilder, TEXT("Copy_Fade"));
 
-	FRDGTextureRef OutputDepthTexture =
-		RegisterExternalTexture(
-			GraphBuilder,
-			OutputDepthTextureRHI,
-			TEXT("Output_Depth"));
+	FRDGTextureRef OutputDepthTexture = RegisterExternalTexture(GraphBuilder, OutputDepthTextureRHI, TEXT("Output_Depth"));
 
-	FRDGTextureRef OutputFadeTexture =
-		RegisterExternalTexture(
-			GraphBuilder,
-			OutputFadeTextureRHI,
-			TEXT("Output_Fade"));
+	FRDGTextureRef OutputFadeTexture = RegisterExternalTexture(GraphBuilder, OutputFadeTextureRHI, TEXT("Output_Fade"));
 
 	if (!DepthTexture || !FadeTexture || !OutputDepthTexture || !OutputFadeTexture)
 	{
@@ -1133,10 +1079,6 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
 	AddCopyTexturePass(GraphBuilder, DepthTexture, OutputDepthTexture);
 
 	AddCopyTexturePass(GraphBuilder, FadeTexture, OutputFadeTexture);
-
-	GraphBuilder.UseExternalAccessMode(DepthTexture, ERHIAccess::SRVMask);
-
-	GraphBuilder.UseExternalAccessMode(FadeTexture, ERHIAccess::SRVMask);
 
 	GraphBuilder.UseExternalAccessMode(OutputDepthTexture, ERHIAccess::SRVMask);
 
@@ -1157,10 +1099,7 @@ void FGroundInteractionRendererProxy::ResetDepthFadeTransientRefs()
 }
 
 
-FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(
-	float HalfExtentX,
-	float HalfExtentY,
-	float MaxDepth)
+FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(float HalfExtentX,  float HalfExtentY, float MaxDepth)
 {
 	check((int32)ERHIZBuffer::IsInverted);
 
@@ -1179,9 +1118,6 @@ FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(
 		ZScale,
 		ZOffset);
 }
-
-
-
 
 
 

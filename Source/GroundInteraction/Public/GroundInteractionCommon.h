@@ -7,6 +7,13 @@
 // GroundInteraction의 월드 좌표 스냅 등의 계산을 이곳에 선언
 namespace GroundInteractionCommon
 {
+	FORCEINLINE const FName& GetDepthCapturePassTypeName()
+	{
+		// Must match IMPLEMENT_CUSTOM_RENDER_PASS(FDepthCapturePass).
+		static const FName Name(TEXT("FDepthCapturePass"));
+		return Name;
+	}
+
 	FORCEINLINE FIntPoint MakeSafeRenderTargetSize(
 		const FIntPoint& InSize)
 	{
