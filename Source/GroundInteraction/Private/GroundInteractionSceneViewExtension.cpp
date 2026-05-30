@@ -39,7 +39,7 @@ bool FGroundInteractionSceneViewExtension::IsActiveThisFrame_Internal(
 	return CurrentWorld->WorldType == EWorldType::PIE || CurrentWorld->WorldType == EWorldType::Game;
 }
 
-void FGroundInteractionSceneViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView)
+void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamily& InViewFamily)
 {
 	if (!InViewFamily.Scene || InViewFamily.Views.Num() == 0)
 	{
@@ -48,12 +48,7 @@ void FGroundInteractionSceneViewExtension::SetupView(FSceneViewFamily& InViewFam
 
 	const FSceneView* PrimaryView = InViewFamily.Views[0];
 	
-	if (!PrimaryView || PrimaryView != &InView)
-	{
-		return;
-	}
-
-	if (InView.bIsSceneCapture || InView.bIsReflectionCapture)
+	if (!PrimaryView || PrimaryView->bIsSceneCapture || PrimaryView->bIsReflectionCapture)
 	{
 		return;
 	}
@@ -72,7 +67,7 @@ void FGroundInteractionSceneViewExtension::SetupView(FSceneViewFamily& InViewFam
 		return;
 	}
 
-	RendererComponent->UpdateAndQueueDepthCapture_GameThread(InViewFamily, InView);
+	RendererComponent->UpdateAndQueueDepthCapture_GameThread(InViewFamily);
 }
 
 

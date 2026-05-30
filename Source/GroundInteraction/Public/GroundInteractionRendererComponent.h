@@ -36,7 +36,7 @@ public:
 	// renderdynamicdata concurrent 에서 바뀐 컴포넌트의 프로퍼티를 프록시에 반영
 	
 	// RT size 변경 프록시 전송, 프리미티브 컬링, UpdateDepthPass 실행 등을 담당함
-	void UpdateAndQueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily, FSceneView& InView);
+	void UpdateAndQueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily);
 	
 	// 컴포넌트에서 MPC capture 정보를 갱신
 	void UpdateMPC(

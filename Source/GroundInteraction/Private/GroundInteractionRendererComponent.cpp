@@ -109,11 +109,9 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 }
 
 
-void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily, FSceneView& InView)
+void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily)
 {
 	check(IsInGameThread());
-
-	(void)InView;
 
 	if (!RenderProxy)
 	{
