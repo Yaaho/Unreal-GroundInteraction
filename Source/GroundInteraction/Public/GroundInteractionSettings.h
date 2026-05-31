@@ -19,8 +19,6 @@ public:
 	UGroundInteractionSettings();
 
 	static const UGroundInteractionSettings* Get();
-
-	virtual FName GetCategoryName() const override;
 	
 public:
 	// 캡쳐 영역 정보를 머티리얼에 전달할 MPC 에셋

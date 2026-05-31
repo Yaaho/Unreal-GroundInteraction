@@ -12,11 +12,6 @@ const UGroundInteractionSettings* UGroundInteractionSettings::Get()
 	return GetDefault<UGroundInteractionSettings>();
 }
 
-FName UGroundInteractionSettings::GetCategoryName() const
-{
-	return TEXT("Plugins");
-}
-
 FIntPoint UGroundInteractionSettings::GetRenderTargetSize() const
 {
 	return FIntPoint(
