@@ -757,6 +757,7 @@ void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(
 	PassInput.EngineShowFlags.SetSkyLighting(false);
 	PassInput.EngineShowFlags.SetPostProcessing(false);
 	PassInput.EngineShowFlags.SetAntiAliasing(false);
+	PassInput.EngineShowFlags.SetDecals(false);
 	PassInput.EngineShowFlags.SetDynamicShadows(false);
 	PassInput.EngineShowFlags.SetTranslucency(false);
 
@@ -1101,8 +1102,6 @@ void FGroundInteractionRendererProxy::ResetDepthFadeTransientRefs()
 
 FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(float HalfExtentX,  float HalfExtentY, float MaxDepth)
 {
-	check((int32)ERHIZBuffer::IsInverted);
-
 	const float SafeHalfExtentX = FMath::Max(HalfExtentX, 1.0f);
 
 	const float SafeHalfExtentY = FMath::Max(HalfExtentY, 1.0f);
@@ -1118,8 +1117,6 @@ FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(float Half
 		ZScale,
 		ZOffset);
 }
-
-
 
 
 
