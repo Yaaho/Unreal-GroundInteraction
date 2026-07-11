@@ -8,6 +8,10 @@
 #include "PhysicsEngine/SkeletalBodySetup.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 
+bool IsGroundInteractionShape(const FKShapeElem& ShapeElem)
+{
+	return ShapeElem.GetName().ToString().StartsWith(TEXT("GI_"));
+}
 
 void UGroundInteractionTargetComponent::OnRegister()
 {
@@ -175,6 +179,11 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 		for (const FKBoxElem& BoxElem : AggGeom.BoxElems)
 		{
+			if (!IsGroundInteractionShape(BoxElem))
+			{
+				continue;
+			}
+
 			const FTransform RelativeTransform(
 				BoxElem.Rotation.Quaternion(),
 				BoxElem.Center,
@@ -197,6 +206,11 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 		for (const FKSphereElem& SphereElem : AggGeom.SphereElems)
 		{
+			if (!IsGroundInteractionShape(SphereElem))
+			{
+				continue;
+			}
+
 			const FTransform RelativeTransform(
 				FQuat::Identity,
 				SphereElem.Center,
@@ -220,6 +234,11 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 		for (const FKSphylElem& SphylElem : AggGeom.SphylElems)
 		{
+			if (!IsGroundInteractionShape(SphylElem))
+			{
+				continue;
+			}
+
 			const FTransform RelativeTransform(
 				SphylElem.Rotation.Quaternion(),
 				SphylElem.Center,

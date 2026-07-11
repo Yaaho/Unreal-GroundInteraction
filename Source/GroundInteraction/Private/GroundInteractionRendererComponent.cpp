@@ -211,8 +211,6 @@ void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(
 
 	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives = Subsystem->GetInteractionPrimitives();
 
-	const FBox CaptureCullBox(SnappedCaptureCenterWS - CaptureExtentWS, SnappedCaptureCenterWS + CaptureExtentWS);
-
 	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
 	{
 		UPrimitiveComponent* Primitive = PrimitiveWeak.Get();
@@ -222,10 +220,7 @@ void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(
 			continue;
 		}
 
-		if (Primitive->Bounds.GetBox().Intersect(CaptureCullBox))
-		{
-			ShowOnlyPrimitives.Add(Primitive->GetPrimitiveSceneId());
-		}
+		ShowOnlyPrimitives.Add(Primitive->GetPrimitiveSceneId());
 	}
 
 	if (ShowOnlyPrimitives.Num() <= 0)
