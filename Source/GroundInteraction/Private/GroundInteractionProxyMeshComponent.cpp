@@ -24,7 +24,7 @@ public:
 		bool bIsGroundInteractionDepthPass = false;
 		if (View && View->CustomRenderPass)
 		{
-			bIsGroundInteractionDepthPass = View->CustomRenderPass->GetTypeName() == GroundInteractionCommon::GetDepthCapturePassTypeName();
+			bIsGroundInteractionDepthPass = View->CustomRenderPass->GetTypeName() == GroundInteractionCommon::GetDepthPassTypeName();
 		}
 
 		Result.bDrawRelevance = Result.bDrawRelevance && bIsGroundInteractionDepthPass;

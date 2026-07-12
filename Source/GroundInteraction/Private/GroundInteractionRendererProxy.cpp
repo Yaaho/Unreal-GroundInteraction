@@ -23,11 +23,11 @@ static constexpr EPixelFormat DEPTH_FADE_PIXEL_FORMAT = PF_R16F;
 
 
 // Prev 렌더 타겟을 읽어서 지정한 픽셀만큼 이동시키는 셰이더
-class FMoveCS : public FGlobalShader
+class FScrollingCS : public FGlobalShader
 {
 public:
-	DECLARE_GLOBAL_SHADER(FMoveCS);
-	SHADER_USE_PARAMETER_STRUCT(FMoveCS, FGlobalShader);
+	DECLARE_GLOBAL_SHADER(FScrollingCS);
+	SHADER_USE_PARAMETER_STRUCT(FScrollingCS, FGlobalShader);
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
@@ -116,10 +116,10 @@ public:
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(FIntPoint, NumCells)
-		SHADER_PARAMETER(FIntPoint, CaptureScrollPixels) 
+		SHADER_PARAMETER(FIntPoint, ScrollPixels)
 		SHADER_PARAMETER(float, MaxSceneDepth)
 		SHADER_PARAMETER(float, SceneDepthInvalidEpsilon)
-		SHADER_PARAMETER(float, CaptureDepthOffsetZ)
+		SHADER_PARAMETER(float, DepthOffsetZ)
 
 		SHADER_PARAMETER_RDG_TEXTURE(Texture2D<float>, CurrentDepthTexture)
 
@@ -130,25 +130,25 @@ public:
 
 
 // 씬 프록시를 캡쳐하는 커스텀 패스
-class FDepthCapturePass final : public FCustomRenderPassBase
+class FGroundInteractionDepthPass final : public FCustomRenderPassBase
 {
 public:
-	IMPLEMENT_CUSTOM_RENDER_PASS(FDepthCapturePass);
+	IMPLEMENT_CUSTOM_RENDER_PASS(FGroundInteractionDepthPass);
 
-	FDepthCapturePass(
+	FGroundInteractionDepthPass(
 		const FIntPoint& InRenderTargetSize,
 		FGroundInteractionRendererProxy* InOwnerProxy,
-		const FVector& InCaptureViewLocation,
+		const FVector& InViewLocation,
 		float InMaxSceneDepth,
 		float InSceneDepthInvalidEpsilon)
 		: FCustomRenderPassBase(
-			TEXT("DepthCapturePass"),
+			TEXT("GroundInteractionDepthPass"),
 			FCustomRenderPassBase::ERenderMode::DepthPass,
 			FCustomRenderPassBase::ERenderOutput::SceneDepth,
 			InRenderTargetSize)
 		, OwnerProxy(InOwnerProxy)
 		, RenderTargetSize(InRenderTargetSize)
-		, CaptureViewLocation(InCaptureViewLocation)
+		, ViewLocation(InViewLocation)
 		, MaxDepth(InMaxSceneDepth)
 		, SceneDepthInvalidEpsilon(InSceneDepthInvalidEpsilon)
 	{
@@ -159,7 +159,7 @@ public:
 		const FIntPoint SafeSize(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
 		const bool bNeedsAllocateRenderTarget = 
-			!CapturedDepthPooledTarget.IsValid() || CapturedDepthPooledTarget->GetDesc().Extent != SafeSize || CapturedDepthPooledTarget->GetDesc().Format != PF_R32_FLOAT;
+			!DepthPooledTarget.IsValid() || DepthPooledTarget->GetDesc().Extent != SafeSize || DepthPooledTarget->GetDesc().Format != PF_R32_FLOAT;
 
 		if (bNeedsAllocateRenderTarget)
 		{
@@ -171,19 +171,19 @@ public:
 				TexCreate_RenderTargetable | TexCreate_ShaderResource,
 				false);
 
-			Desc.DebugName = TEXT("GI_CapturedDepth");
+			Desc.DebugName = TEXT("GI_GroundInteractionDepth");
 
-			GRenderTargetPool.FindFreeElement(GraphBuilder.RHICmdList, Desc, CapturedDepthPooledTarget, TEXT("GI_CapturedDepth"));
+			GRenderTargetPool.FindFreeElement(GraphBuilder.RHICmdList, Desc, DepthPooledTarget, TEXT("GI_GroundInteractionDepth"));
 		}
 
-		if (!CapturedDepthPooledTarget.IsValid())
+		if (!DepthPooledTarget.IsValid())
 		{
 			RenderTargetTexture = nullptr;
 			PreRenderGraphBuilder = nullptr;
 			return;
 		}
 
-		RenderTargetTexture = GraphBuilder.RegisterExternalTexture(CapturedDepthPooledTarget, TEXT("GI_CapturedDepth_PreRender"));
+		RenderTargetTexture = GraphBuilder.RegisterExternalTexture(DepthPooledTarget, TEXT("GI_GroundInteractionDepth_PreRender"));
 
 		PreRenderGraphBuilder = &GraphBuilder;
 
@@ -195,58 +195,58 @@ public:
 
 	virtual void OnPostRender(FRDGBuilder& GraphBuilder) override
 	{
-		if (!OwnerProxy || !CapturedDepthPooledTarget.IsValid() || Views.Num() == 0 || Views[0] == nullptr)
+		if (!OwnerProxy || !DepthPooledTarget.IsValid() || Views.Num() == 0 || Views[0] == nullptr)
 		{
 			return;
 		}
 
-		FRDGTextureRef CapturedDepthTexture = nullptr;
+		FRDGTextureRef DepthPassTexture = nullptr;
 
 		if (PreRenderGraphBuilder == &GraphBuilder && RenderTargetTexture)
 		{
-			CapturedDepthTexture = RenderTargetTexture;
+			DepthPassTexture = RenderTargetTexture;
 		}
 		else
 		{
-			CapturedDepthTexture = GraphBuilder.RegisterExternalTexture(CapturedDepthPooledTarget, TEXT("GI_CapturedDepth_PostRender"));
+			DepthPassTexture = GraphBuilder.RegisterExternalTexture(DepthPooledTarget, TEXT("GI_GroundInteractionDepth_PostRender"));
 		}
 
-		if (!CapturedDepthTexture)
+		if (!DepthPassTexture)
 		{
 			return;
 		}
 		
-		OwnerProxy->UpdateCapturedDepth(
+		OwnerProxy->UpdateGroundInteractionDepth(
 		GraphBuilder,
-		CapturedDepthTexture,
+		DepthPassTexture,
 		RenderTargetSize,
 		MaxDepth,
 		SceneDepthInvalidEpsilon,
-		CaptureViewLocation,
+		ViewLocation,
 		Views[0]->GetFeatureLevel());
 	}
 
 private:
 	FGroundInteractionRendererProxy* OwnerProxy = nullptr;
 	FIntPoint RenderTargetSize = FIntPoint(1, 1);
-	FVector CaptureViewLocation = FVector::ZeroVector;
+	FVector ViewLocation = FVector::ZeroVector;
 
 	float MaxDepth = 1.0f;
 	float SceneDepthInvalidEpsilon = 0.1f;
 
-	TRefCountPtr<IPooledRenderTarget> CapturedDepthPooledTarget;
+	TRefCountPtr<IPooledRenderTarget> DepthPooledTarget;
 	
 	FRDGBuilder* PreRenderGraphBuilder = nullptr;
 };
 
 
 
-IMPLEMENT_GLOBAL_SHADER(FMoveCS, "/Plugin/GroundInteraction/GroundInteractionMove.usf", "MainCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FScrollingCS, "/Plugin/GroundInteraction/GroundInteractionScrolling.usf", "MainCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FFadeCS, "/Plugin/GroundInteraction/GroundInteractionFade.usf", "MainCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FUpdateDepthCS, "/Plugin/GroundInteraction/GroundInteractionUpdateDepth.usf", "MainCS", SF_Compute);
 
 
-static void AddMovePass(
+static void AddScrollingPass(
 	FRDGBuilder& GraphBuilder,
 	ERHIFeatureLevel::Type FeatureLevel,
 	FRDGTextureSRVRef PreviousDepthSRV,
@@ -261,7 +261,7 @@ static void AddMovePass(
 	float SceneDepthInvalidEpsilon,
 	bool bHasHistory)
 {
-	FMoveCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FMoveCS::FParameters>();
+	FScrollingCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FScrollingCS::FParameters>();
 
 	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
@@ -278,13 +278,13 @@ static void AddMovePass(
 	PassParameters->OutputDepthTexture = CurrentDepthUAV;
 	PassParameters->OutputFadeTexture = CurrentFadeUAV;
 
-	TShaderMapRef<FMoveCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
+	TShaderMapRef<FScrollingCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
 
 	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
 			FIntVector(NumCells.X, NumCells.Y, 1),
 			FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
 
-	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.Move"), ComputeShader, PassParameters, DispatchCount);
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.Scrolling"), ComputeShader, PassParameters, DispatchCount);
 }
 
 
@@ -324,23 +324,23 @@ static void AddUpdateDepthPass(
 	ERHIFeatureLevel::Type FeatureLevel,
 	FRDGTextureUAVRef DepthTextureUAV,
 	FRDGTextureUAVRef FadeTextureUAV,
-	FRDGTextureRef CapturedDepthTexture,
+	FRDGTextureRef DepthPassTexture,
 	const FIntPoint& RenderTargetSize,
-	const FIntPoint& CaptureScrollPixels,
+	const FIntPoint& ScrollPixels,
 	float MaxSceneDepth,
 	float SceneDepthInvalidEpsilon,
-	float CaptureDepthOffsetZ)
+	float DepthOffsetZ)
 {
 	FUpdateDepthCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FUpdateDepthCS::FParameters>();
 
 	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
 	PassParameters->NumCells = NumCells;
-	PassParameters->CaptureScrollPixels = CaptureScrollPixels;
+	PassParameters->ScrollPixels = ScrollPixels;
 	PassParameters->MaxSceneDepth = MaxSceneDepth;
 	PassParameters->SceneDepthInvalidEpsilon = SceneDepthInvalidEpsilon;
-	PassParameters->CaptureDepthOffsetZ = CaptureDepthOffsetZ;
-	PassParameters->CurrentDepthTexture = CapturedDepthTexture;
+	PassParameters->DepthOffsetZ = DepthOffsetZ;
+	PassParameters->CurrentDepthTexture = DepthPassTexture;
 	PassParameters->DepthTexture = DepthTextureUAV;
 	PassParameters->FadeTexture = FadeTextureUAV;
 
@@ -440,7 +440,7 @@ FGroundInteractionRendererProxy::FGroundInteractionRendererProxy(
 	FTextureReferenceRHIRef InFadeTextureReferenceRHI,
 	FIntVector InNumCell,
 	FVector InCellSpacing,
-	const FVector& InCaptureExtentWS,
+	const FVector& InInteractionExtentWS,
 	float InFadeRiseSpeed,
 	float InFadeMaxHeight,
 	float InFadeUpdateIntervalSeconds)
@@ -454,10 +454,10 @@ FGroundInteractionRendererProxy::FGroundInteractionRendererProxy(
 	, CellSpacing(InCellSpacing)
 	, PreviousSnappedLocation(FVector::ZeroVector)
 	, bHasPreviousCapture(false)
-	, CaptureExtentWS(
-		FMath::Max(InCaptureExtentWS.X, 1.0),
-		FMath::Max(InCaptureExtentWS.Y, 1.0),
-		FMath::Max(InCaptureExtentWS.Z, 1.0))
+	, InteractionExtentWS(
+		FMath::Max(InInteractionExtentWS.X, 1.0),
+		FMath::Max(InInteractionExtentWS.Y, 1.0),
+		FMath::Max(InInteractionExtentWS.Z, 1.0))
 	, FadeRiseSpeed(FMath::Max(InFadeRiseSpeed, 0.0f))
 	, FadeMaxHeight(FMath::Max(InFadeMaxHeight, 0.0f))
 	, FadeUpdateIntervalSeconds(FMath::Max(InFadeUpdateIntervalSeconds, KINDA_SMALL_NUMBER))
@@ -522,41 +522,41 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 	const float DeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0f);
 
 	// 현재 프레임의 스냅된 센터 위치
-	const FVector CurrentCaptureOriginWS = GetCaptureOriginWS();
+	const FVector CurrentOriginWS = GetCaptureOriginWS();
 
 	// 이전 프레임의 스냅된 센터 위치
-	const FVector PreviousCaptureOriginWS = bHasPreviousCapture ? GetPreviousCaptureOriginWS() : CurrentCaptureOriginWS;
+	const FVector PreviousOriginWS = bHasPreviousCapture ? GetPreviousCaptureOriginWS() : CurrentOriginWS;
 	
 	// 이전 프레임 센터 위치와 현재 프레임 센터 위치를 비교해 몇 픽셀만큼 움직여야 하는지 Offset 을 저장하는 변수
-	FIntPoint CaptureScrollPixels = FIntPoint::ZeroValue;
+	FIntPoint ScrollPixels = FIntPoint::ZeroValue;
 	
 	if (bHasPreviousCapture)
 	{
-		const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(CaptureExtentWS, RenderTargetSize);
-		CaptureScrollPixels.X = FMath::RoundToInt((CurrentSnappedLocation.X - PreviousSnappedLocation.X) / UnitsPerPixel.X);
-		CaptureScrollPixels.Y =- FMath::RoundToInt((CurrentSnappedLocation.Y - PreviousSnappedLocation.Y) / UnitsPerPixel.Y);
+		const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(InteractionExtentWS, RenderTargetSize);
+		ScrollPixels.X = FMath::RoundToInt((CurrentSnappedLocation.X - PreviousSnappedLocation.X) / UnitsPerPixel.X);
+		ScrollPixels.Y =- FMath::RoundToInt((CurrentSnappedLocation.Y - PreviousSnappedLocation.Y) / UnitsPerPixel.Y);
 	}
 	
-	// ---- Move Pass 실행 ----
-	// 이전 프레임 캡쳐 결과가 있고, CaptureScrollPixels 값이 0 이 아니면 중심 위치를 이동시켜야 하므로 Move Pass 를 실행한다.
-	if (bHasPreviousCapture && CaptureScrollPixels != FIntPoint::ZeroValue)
+	// ---- Scrolling Pass 실행 ----
+	// 이전 프레임 결과가 있고, ScrollPixels 값이 0 이 아니면 중심 위치를 이동시켜야 하므로 Scrolling Pass 를 실행한다.
+	if (bHasPreviousCapture && ScrollPixels != FIntPoint::ZeroValue)
 	{
 		FPlaneTexture& PreviousDepth = DepthFadeTextures[GetPrevDepthFadeTextureId()][DEPTH_FADE_CHANNEL_DEPTH];
 		FPlaneTexture& PreviousFade = DepthFadeTextures[GetPrevDepthFadeTextureId()][DEPTH_FADE_CHANNEL_FADE];
 		FPlaneTexture& CurrentDepth = DepthFadeTextures[GetCurrentDepthFadeTextureId()][DEPTH_FADE_CHANNEL_DEPTH];
 		FPlaneTexture& CurrentFade = DepthFadeTextures[GetCurrentDepthFadeTextureId()][DEPTH_FADE_CHANNEL_FADE];
 
-		FRDGTextureRef PreviousDepthTexture = PreviousDepth.GetOrCreateTexture(GraphBuilder, TEXT("Move_PreviousDepth"));
-		FRDGTextureRef PreviousFadeTexture = PreviousFade.GetOrCreateTexture(GraphBuilder, TEXT("Move_PreviousFade"));
+		FRDGTextureRef PreviousDepthTexture = PreviousDepth.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_PreviousDepth"));
+		FRDGTextureRef PreviousFadeTexture = PreviousFade.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_PreviousFade"));
 		
-		FRDGTextureSRVRef PreviousDepthSRV = PreviousDepth.GetOrCreateSRV(GraphBuilder, TEXT("Move_PreviousDepth"));
-		FRDGTextureSRVRef PreviousFadeSRV = PreviousFade.GetOrCreateSRV(GraphBuilder, TEXT("Move_PreviousFade"));
+		FRDGTextureSRVRef PreviousDepthSRV = PreviousDepth.GetOrCreateSRV(GraphBuilder, TEXT("Scrolling_PreviousDepth"));
+		FRDGTextureSRVRef PreviousFadeSRV = PreviousFade.GetOrCreateSRV(GraphBuilder, TEXT("Scrolling_PreviousFade"));
 
-		FRDGTextureRef CurrentDepthTexture = CurrentDepth.GetOrCreateTexture(GraphBuilder, TEXT("Move_CurrentDepth"));
-		FRDGTextureRef CurrentFadeTexture = CurrentFade.GetOrCreateTexture(GraphBuilder, TEXT("Move_CurrentFade"));
+		FRDGTextureRef CurrentDepthTexture = CurrentDepth.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_CurrentDepth"));
+		FRDGTextureRef CurrentFadeTexture = CurrentFade.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_CurrentFade"));
 
-		FRDGTextureUAVRef CurrentDepthUAV = CurrentDepth.GetOrCreateUAV(GraphBuilder, TEXT("Move_CurrentDepth"));
-		FRDGTextureUAVRef CurrentFadeUAV = CurrentFade.GetOrCreateUAV(GraphBuilder, TEXT("Move_CurrentFade"));
+		FRDGTextureUAVRef CurrentDepthUAV = CurrentDepth.GetOrCreateUAV(GraphBuilder, TEXT("Scrolling_CurrentDepth"));
+		FRDGTextureUAVRef CurrentFadeUAV = CurrentFade.GetOrCreateUAV(GraphBuilder, TEXT("Scrolling_CurrentFade"));
 
 		if (PreviousDepthTexture && PreviousFadeTexture &&
 			PreviousDepthSRV && PreviousFadeSRV &&
@@ -568,7 +568,7 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 			GraphBuilder.UseInternalAccessMode(CurrentDepthTexture);
 			GraphBuilder.UseInternalAccessMode(CurrentFadeTexture);
 
-			AddMovePass(
+		AddScrollingPass(
 				GraphBuilder,
 				PrimaryView->GetFeatureLevel(),
 				PreviousDepthSRV,
@@ -576,9 +576,9 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 				CurrentDepthUAV,
 				CurrentFadeUAV,
 				RenderTargetSize,
-				CaptureScrollPixels,
-				PreviousCaptureOriginWS.Z,
-				CurrentCaptureOriginWS.Z,
+			ScrollPixels,
+			PreviousOriginWS.Z,
+			CurrentOriginWS.Z,
 				GetMaxSceneDepth(),
 				GetSceneDepthInvalidEpsilon(),
 				true);
@@ -635,7 +635,7 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 }
 
 
-void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& CaptureViewLocation, const FIntPoint& CaptureRenderTargetSize)
+void FGroundInteractionRendererProxy::QueueGroundInteractionDepthPass_GameThread(FSceneViewFamily& InViewFamily, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& ViewLocation, const FIntPoint& DepthRenderTargetSize)
 {
 	check(IsInGameThread());
 
@@ -644,17 +644,17 @@ void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(FSceneViewFam
 		return;
 	}
 
-	const FIntPoint SafeRenderTargetSize(FMath::Max(CaptureRenderTargetSize.X, 1), FMath::Max(CaptureRenderTargetSize.Y, 1));
+	const FIntPoint SafeRenderTargetSize(FMath::Max(DepthRenderTargetSize.X, 1), FMath::Max(DepthRenderTargetSize.Y, 1));
 
-	const float HalfExtentX = FMath::Max(CaptureExtentWS.X, 1.0f);
-	const float HalfExtentY = FMath::Max(CaptureExtentWS.Y, 1.0f);
+	const float HalfExtentX = FMath::Max(InteractionExtentWS.X, 1.0f);
+	const float HalfExtentY = FMath::Max(InteractionExtentWS.Y, 1.0f);
 
-	const FVector CaptureLookAt = CaptureViewLocation + FVector(0.0f, 0.0f, 1.0f);
+	const FVector ViewLookAt = ViewLocation + FVector(0.0f, 0.0f, 1.0f);
 
 	FSceneInterface::FCustomRenderPassRendererInput PassInput;
-	PassInput.ViewLocation = CaptureViewLocation;
+	PassInput.ViewLocation = ViewLocation;
 
-	PassInput.ViewRotationMatrix = FLookAtMatrix(CaptureViewLocation, CaptureLookAt, FVector(0.0f, 1.0f, 0.0f));
+	PassInput.ViewRotationMatrix = FLookAtMatrix(ViewLocation, ViewLookAt, FVector(0.0f, 1.0f, 0.0f));
 
 	PassInput.ViewRotationMatrix = PassInput.ViewRotationMatrix.RemoveTranslation();
 
@@ -679,7 +679,7 @@ void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(FSceneViewFam
 	PassInput.EngineShowFlags.SetDynamicShadows(false);
 	PassInput.EngineShowFlags.SetTranslucency(false);
 
-	PassInput.CustomRenderPass = new FDepthCapturePass(SafeRenderTargetSize, this, CaptureViewLocation, MaxDepth, GetSceneDepthInvalidEpsilon());
+	PassInput.CustomRenderPass = new FGroundInteractionDepthPass(SafeRenderTargetSize, this, ViewLocation, MaxDepth, GetSceneDepthInvalidEpsilon());
 	
 	InViewFamily.Scene->AddCustomRenderPass(&InViewFamily, PassInput);
 }
@@ -743,18 +743,18 @@ TArray<FGroundInteractionRendererProxy*> FGroundInteractionRendererProxy::GetPro
 }
 
 
-void FGroundInteractionRendererProxy::UpdateCapturedDepth(
+void FGroundInteractionRendererProxy::UpdateGroundInteractionDepth(
 	FRDGBuilder& GraphBuilder,
-	FRDGTextureRef CapturedDepthTexture,
+	FRDGTextureRef DepthPassTexture,
 	const FIntPoint& PassRenderTargetSize,
 	float PassMaxSceneDepth,
 	float PassSceneDepthInvalidEpsilon,
-	const FVector& PassCaptureViewLocation,
+	const FVector& PassViewLocation,
 	ERHIFeatureLevel::Type FeatureLevel)
 {
 	check(IsInRenderingThread());
 
-	if (bReleased || !CapturedDepthTexture)
+	if (bReleased || !DepthPassTexture)
 	{
 		return;
 	}
@@ -785,17 +785,17 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 	
 	const FIntPoint SafeRenderTargetSize(FMath::Max(PassRenderTargetSize.X, 1), FMath::Max(PassRenderTargetSize.Y, 1));
 
-	const FVector CurrentCaptureViewLocation = GetCaptureOriginWS();
+	const FVector CurrentViewLocation = GetCaptureOriginWS();
 
-	const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(CaptureExtentWS, SafeRenderTargetSize); // [변경] 공통 함수 사용
+	const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(InteractionExtentWS, SafeRenderTargetSize); // [변경] 공통 함수 사용
 
-	// PassCaptureViewLocation 와 CurrentCaptureViewLocation 의 픽셀 오프셋 차이 계산
-	const FIntPoint CaptureScrollPixels(
-		FMath::RoundToInt((CurrentCaptureViewLocation.X - PassCaptureViewLocation.X) / UnitsPerPixel.X),
-		-FMath::RoundToInt((CurrentCaptureViewLocation.Y - PassCaptureViewLocation.Y) / UnitsPerPixel.Y));
+	// PassViewLocation 와 CurrentViewLocation 의 픽셀 오프셋 차이 계산
+	const FIntPoint ScrollPixels(
+		FMath::RoundToInt((CurrentViewLocation.X - PassViewLocation.X) / UnitsPerPixel.X),
+		-FMath::RoundToInt((CurrentViewLocation.Y - PassViewLocation.Y) / UnitsPerPixel.Y));
 	
-	// PassCaptureViewLocation 와 CurrentCaptureViewLocation 의 Z 위치 차이 계산
-	const float CaptureDepthOffsetZ = static_cast<float>(PassCaptureViewLocation.Z - CurrentCaptureViewLocation.Z);
+	// PassViewLocation 와 CurrentViewLocation 의 Z 위치 차이 계산
+	const float DepthOffsetZ = static_cast<float>(PassViewLocation.Z - CurrentViewLocation.Z);
 	
 	GraphBuilder.UseInternalAccessMode(DepthTexture);
 	GraphBuilder.UseInternalAccessMode(FadeTexture);
@@ -805,17 +805,17 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 		FeatureLevel,
 		DepthUAV,
 		FadeUAV,
-		CapturedDepthTexture,
+		DepthPassTexture,
 		SafeRenderTargetSize,
-		CaptureScrollPixels,
+		ScrollPixels,
 		PassMaxSceneDepth,
 		PassSceneDepthInvalidEpsilon,
-		CaptureDepthOffsetZ);
+		DepthOffsetZ);
 
 	GraphBuilder.SetTextureAccessFinal(DepthTexture, ERHIAccess::SRVMask);
 	GraphBuilder.SetTextureAccessFinal(FadeTexture, ERHIAccess::SRVMask);
 
-	// 첫 capture 성공 이후부터 Move history 를 사용할 수 있게 한다.
+	// 첫 capture 성공 이후부터 scrolling history 를 사용할 수 있게 한다.
 	if (!bHasPreviousCapture)
 	{
 		bHasPreviousCapture = true;
@@ -978,10 +978,3 @@ FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(float Half
 
 	return FReversedZOrthoMatrix(SafeHalfExtentX, SafeHalfExtentY, ZScale, ZOffset);
 }
-
-
-
-
-
-
-

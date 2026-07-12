@@ -53,7 +53,7 @@ public:
 		FTextureReferenceRHIRef InFadeTextureReferenceRHI,
 		FIntVector InNumCell,
 		FVector InCellSpacing,
-		const FVector& InCaptureExtentWS,
+		const FVector& InInteractionExtentWS,
 		float InFadeRiseSpeed,
 		float InFadeMaxHeight,
 		float InFadeUpdateIntervalSeconds);
@@ -65,11 +65,11 @@ public:
 	
 	// Depth Capture CustomRenderPass 추가 함수
 	// 게임 스레드에서 호출됨
-	void QueueDepthCapture_GameThread(
+	void QueueGroundInteractionDepthPass_GameThread(
 		FSceneViewFamily&InViewFamily,
 		const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
-		const FVector& CaptureViewLocation,
-		const FIntPoint& CaptureRenderTargetSize);
+		const FVector& ViewLocation,
+		const FIntPoint& GroundInteractionRenderTargetSize);
 	
 	// 컴포넌트 파괴 시 호출되는 함수
 	void Release();
@@ -85,15 +85,15 @@ public:
 	
 	
 public:
-	// FDepthCapturePass::OnPostRender 에서 호출되는 함수
+	// FGroundInteractionDepthPass::OnPostRender 에서 호출되는 함수
 	// custom depth capture 결과를 CurrentStateIndex texture 에 반영
-	void UpdateCapturedDepth(
+	void UpdateGroundInteractionDepth(
 		FRDGBuilder& GraphBuilder,
-		FRDGTextureRef CapturedDepthTexture,
+		FRDGTextureRef DepthPassTexture,
 		const FIntPoint& PassRenderTargetSize,
 		float PassMaxSceneDepth,
 		float PassSceneDepthInvalidEpsilon,
-		const FVector& PassCaptureViewLocation,
+		const FVector& PassViewLocation,
 		ERHIFeatureLevel::Type FeatureLevel);
 	
 public:
@@ -125,7 +125,7 @@ private:
 		return 1 - CurrentStateIndex;
 	}
 
-	// Move 패스 후 DepthFadeTexture 의 State Index 를 진행시키는 함수
+	// Scrolling 패스 후 DepthFadeTexture 의 State Index 를 진행시키는 함수
 	int32 AdvanceDepthFadeTextureId()
 	{
 		CurrentStateIndex = 1 - CurrentStateIndex;
@@ -135,19 +135,19 @@ private:
 	// 캡쳐 월드 위치를 가져오는 함수
 	FVector GetCaptureOriginWS() const
 	{
-		return FVector(CurrentSnappedLocation.X, CurrentSnappedLocation.Y, CurrentSnappedLocation.Z - CaptureExtentWS.Z);
+		return FVector(CurrentSnappedLocation.X, CurrentSnappedLocation.Y, CurrentSnappedLocation.Z - InteractionExtentWS.Z);
 	}
 	
 	// 이전 프레임의 캡쳐 위치를 가져오는 함수
 	FVector GetPreviousCaptureOriginWS() const
 	{
-		return FVector(PreviousSnappedLocation.X,PreviousSnappedLocation.Y, PreviousSnappedLocation.Z - CaptureExtentWS.Z);
+		return FVector(PreviousSnappedLocation.X,PreviousSnappedLocation.Y, PreviousSnappedLocation.Z - InteractionExtentWS.Z);
 	}
 	
 	// 최대 씬댑스를 가져오는 함수
 	float GetMaxSceneDepth() const
 	{
-		return FMath::Max(CaptureExtentWS.Z * 2.0f, 1.0f);
+		return FMath::Max(InteractionExtentWS.Z * 2.0f, 1.0f);
 	}
 
 	float GetSceneDepthInvalidEpsilon() const
@@ -168,7 +168,7 @@ private:
 	bool bHasPreviousCapture = false;
 
 	// 현재 프록시가 사용하는 capture 설정.
-	FVector CaptureExtentWS = FVector(1000.0f, 1000.0f, 1000.0f);
+	FVector InteractionExtentWS = FVector(1000.0f, 1000.0f, 1000.0f);
 
 	float FadeRiseSpeed = 150.0f;
 	float FadeMaxHeight = 120.0f;
@@ -183,4 +183,3 @@ private:
 	bool bReleased = false;
 	bool bClearDepthFadeTextures = true;
 };
-

@@ -66,7 +66,7 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 		return;
 	}
 
-	RendererComponent->UpdateDepthCapture_GameThread(InViewFamily);
+	RendererComponent->UpdateGroundInteractionDepth_GameThread(InViewFamily);
 }
 
 

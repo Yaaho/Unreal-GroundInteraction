@@ -45,8 +45,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 			// 복사해와야 하는 픽셀이 Valid 한 상태이면
 			if (GI_IsValidState(PrevDepth, PrevFade))
 			{
-				const float RebaseDeltaZ =
-					PrevCaptureViewOriginZ - CurrentCaptureViewOriginZ;
+				const float RebaseDeltaZ = PrevCaptureViewOriginZ - CurrentCaptureViewOriginZ;
 
 				// Depth 채널은 Rebase 한다.
 				OutDepth = PrevDepth + RebaseDeltaZ;
@@ -54,7 +53,7 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 				// Fade 채널은 Depth 채널에 대한 상대 위치이니 Rebase 할 필요 없다.
 				OutFade = PrevFade;
 
-				// Move 한 값이 Invalid 하면 Invalidate 한다.
+				// Scrolling 한 값이 Invalid 하면 Invalidate 한다.
 				if (!GI_IsValidState(OutDepth, OutFade) ||
 					!GI_IsValidSceneDepth(OutDepth, MaxSceneDepth, SceneDepthInvalidEpsilon))
 				{

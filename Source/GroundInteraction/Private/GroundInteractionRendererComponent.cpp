@@ -49,7 +49,7 @@ void UGroundInteractionRendererComponent::InitializeRenderer(UGroundInteractionW
 
 	RenderTargetSize = FIntPoint::ZeroValue;
 	
-	DepthCaptureUpdateAccumulatorSeconds = 0.0f;
+	DepthUpdateAccumulatorSeconds = 0.0f;
 
 	if (IsRegistered())
 	{
@@ -76,23 +76,23 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 		return;
 	}
 
-	const FIntPoint SafeRenderTargetSize = Settings->GetRenderTargetSize();
+	const FIntPoint SafeRenderTargetSize = Settings->GetGroundInteractionRenderTargetSize();
 
 	if (SafeRenderTargetSize.X <= 0 || SafeRenderTargetSize.Y <= 0)
 	{
 		return;
 	}
 
-	const FVector CaptureExtentWS = GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent);
+	const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->GroundInteractionWorldExtent);
 
-	const FVector RawCaptureCenterWS = GetComponentLocation();
+	const FVector RawCenterWS = GetComponentLocation();
 
-	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCaptureCenterWS, CaptureExtentWS, SafeRenderTargetSize);
+	const FVector SnappedCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCenterWS, InteractionExtentWS, SafeRenderTargetSize, Settings->GroundInteractionLocationSnapCellCount);
 
 	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
 	ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyLocation)(
-		[ProxyForCommand, SnappedCaptureCenterWS](FRHICommandListImmediate& RHICmdList)
+		[ProxyForCommand, SnappedCenterWS](FRHICommandListImmediate& RHICmdList)
 		{
 			if (!ProxyForCommand)
 			{
@@ -100,17 +100,17 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 			}
 
 			// 프록시에 Snapped Center 위치 설정
-			ProxyForCommand->CurrentSnappedLocation = SnappedCaptureCenterWS;
+			ProxyForCommand->CurrentSnappedLocation = SnappedCenterWS;
 		});
 
-	const FVector CaptureOriginWS = GroundInteractionCommon::GetCaptureOriginWS(SnappedCaptureCenterWS, CaptureExtentWS);
+	const FVector InteractionOriginWS = GroundInteractionCommon::GetCaptureOriginWS(SnappedCenterWS, InteractionExtentWS);
 	
 	// MPC 에 Snapped Capture Origin 위치 설정
-	UpdateMPC(CaptureOriginWS, CaptureExtentWS);
+	UpdateMPC(InteractionOriginWS, InteractionExtentWS);
 }
 
 
-void UGroundInteractionRendererComponent::UpdateDepthCapture_GameThread(FSceneViewFamily& InViewFamily)
+void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThread(FSceneViewFamily& InViewFamily)
 {
 	check(IsInGameThread());
 
@@ -143,7 +143,7 @@ void UGroundInteractionRendererComponent::UpdateDepthCapture_GameThread(FSceneVi
 		return;
 	}
 
-	const FIntPoint NewRenderTargetSize = Settings->GetRenderTargetSize();
+	const FIntPoint NewRenderTargetSize = Settings->GetGroundInteractionRenderTargetSize();
 
 	bool bRenderTargetChanged = false;
 
@@ -155,7 +155,7 @@ void UGroundInteractionRendererComponent::UpdateDepthCapture_GameThread(FSceneVi
 		bRenderTargetChanged = true;
 
 		// RT size 변경 시 capture accumulator 초기화
-		DepthCaptureUpdateAccumulatorSeconds = 0.0f;
+		DepthUpdateAccumulatorSeconds = 0.0f;
 
 		SendRenderTransform_Concurrent();
 	}
@@ -184,26 +184,26 @@ void UGroundInteractionRendererComponent::UpdateDepthCapture_GameThread(FSceneVi
 			});
 	}
 
-	const float CaptureUpdateIntervalSeconds = Settings->GetDepthCaptureUpdateIntervalSeconds();
+	const float DepthUpdateIntervalSeconds = Settings->GetDepthUpdateIntervalSeconds();
 
 	const float DeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0f);
 
-	DepthCaptureUpdateAccumulatorSeconds += DeltaTimeSeconds;
+	DepthUpdateAccumulatorSeconds += DeltaTimeSeconds;
 
-	if (DepthCaptureUpdateAccumulatorSeconds < CaptureUpdateIntervalSeconds)
+	if (DepthUpdateAccumulatorSeconds < DepthUpdateIntervalSeconds)
 	{
 		return;
 	}
 
-	const int32 CaptureStepCount = FMath::Max(FMath::FloorToInt(DepthCaptureUpdateAccumulatorSeconds / CaptureUpdateIntervalSeconds), 1);
+	const int32 DepthUpdateStepCount = FMath::Max(FMath::FloorToInt(DepthUpdateAccumulatorSeconds / DepthUpdateIntervalSeconds), 1);
 
-	DepthCaptureUpdateAccumulatorSeconds -= static_cast<float>(CaptureStepCount) * CaptureUpdateIntervalSeconds;
+	DepthUpdateAccumulatorSeconds -= static_cast<float>(DepthUpdateStepCount) * DepthUpdateIntervalSeconds;
 
-	const FVector CaptureExtentWS = GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent);
+	const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->GroundInteractionWorldExtent);
 
-	const FVector RawCaptureCenterWS = GetComponentLocation();
+	const FVector RawCenterWS = GetComponentLocation();
 
-	const FVector SnappedCaptureCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCaptureCenterWS, CaptureExtentWS, RenderTargetSize);
+	const FVector SnappedCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCenterWS, InteractionExtentWS, RenderTargetSize, Settings->GroundInteractionLocationSnapCellCount);
 	
 	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
 
@@ -226,13 +226,13 @@ void UGroundInteractionRendererComponent::UpdateDepthCapture_GameThread(FSceneVi
 		return;
 	}
 
-	const FVector CaptureViewLocation = GroundInteractionCommon::GetCaptureOriginWS(SnappedCaptureCenterWS, CaptureExtentWS);
+	const FVector ViewLocation = GroundInteractionCommon::GetCaptureOriginWS(SnappedCenterWS, InteractionExtentWS);
 
-	RenderProxy->QueueDepthCapture_GameThread(InViewFamily, ShowOnlyPrimitives, CaptureViewLocation, RenderTargetSize);
+	RenderProxy->QueueGroundInteractionDepthPass_GameThread(InViewFamily, ShowOnlyPrimitives, ViewLocation, RenderTargetSize);
 }
 
 
-void UGroundInteractionRendererComponent::UpdateMPC(const FVector& CaptureOriginWS, const FVector& CaptureExtentWS) const
+void UGroundInteractionRendererComponent::UpdateMPC(const FVector& InteractionOriginWS, const FVector& InteractionExtentWS) const
 {
 	if (!GetWorld() || !MaterialParameterCollection)
 	{
@@ -242,27 +242,27 @@ void UGroundInteractionRendererComponent::UpdateMPC(const FVector& CaptureOrigin
 	UKismetMaterialLibrary::SetVectorParameterValue(
 		GetWorld(),
 		MaterialParameterCollection,
-		FName(TEXT("GI_CaptureOriginWS")),
+		FName(TEXT("GI_OriginWS")),
 		FLinearColor(
-			CaptureOriginWS.X,
-			CaptureOriginWS.Y,
-			CaptureOriginWS.Z,
+			InteractionOriginWS.X,
+			InteractionOriginWS.Y,
+			InteractionOriginWS.Z,
 			0.0f));
 
 	UKismetMaterialLibrary::SetVectorParameterValue(
 		GetWorld(),
 		MaterialParameterCollection,
-		FName(TEXT("GI_CaptureExtentWS")),
+		FName(TEXT("GI_ExtentWS")),
 		FLinearColor(
-			CaptureExtentWS.X,
-			CaptureExtentWS.Y,
-			CaptureExtentWS.Z,
+			InteractionExtentWS.X,
+			InteractionExtentWS.Y,
+			InteractionExtentWS.Z,
 			0.0f));
 
 	UKismetMaterialLibrary::SetScalarParameterValue(
 		GetWorld(),
 		MaterialParameterCollection,
-		FName(TEXT("GI_CaptureValid")),
+		FName(TEXT("GI_Valid")),
 		1.0f);
 }
 
@@ -315,11 +315,11 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
 
-	RenderTargetSize = Settings ? Settings->GetRenderTargetSize() : FIntPoint(512, 512);
+	RenderTargetSize = Settings ? Settings->GetGroundInteractionRenderTargetSize() : FIntPoint(512, 512);
 
 	ApplyOutputRenderTargets();
 
-	const FVector CaptureExtent = Settings ? GroundInteractionCommon::MakeSafeCaptureExtent(Settings->CaptureWorldExtent) : FVector(1000.0f, 1000.0f, 1000.0f);
+	const FVector CaptureExtent = Settings ? GroundInteractionCommon::MakeSafeInteractionExtent(Settings->GroundInteractionWorldExtent) : FVector(1000.0f, 1000.0f, 1000.0f);
 
 	const float FadeRiseSpeed = Settings ? Settings->FadeRiseSpeed : 150.0f;
 

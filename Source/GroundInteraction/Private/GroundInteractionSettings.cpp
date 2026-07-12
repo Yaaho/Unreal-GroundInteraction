@@ -12,9 +12,10 @@ const UGroundInteractionSettings* UGroundInteractionSettings::Get()
 	return GetDefault<UGroundInteractionSettings>();
 }
 
-FIntPoint UGroundInteractionSettings::GetRenderTargetSize() const
+FIntPoint UGroundInteractionSettings::GetGroundInteractionRenderTargetSize() const
 {
-	return FIntPoint(FMath::Max(RenderTargetSizeX, 16), FMath::Max(RenderTargetSizeY, 16));
+	const int32 SafeRenderTargetSize = FMath::Max(GroundInteractionRenderTargetSize, 16);
+	return FIntPoint(SafeRenderTargetSize, SafeRenderTargetSize);
 }
 
 float UGroundInteractionSettings::GetDepthFadeUpdateIntervalSeconds() const
@@ -22,9 +23,9 @@ float UGroundInteractionSettings::GetDepthFadeUpdateIntervalSeconds() const
 	return 1.0f / float(FMath::Max(DepthFadeUpdateRate, 1));
 }
 
-float UGroundInteractionSettings::GetDepthCaptureUpdateIntervalSeconds() const
+float UGroundInteractionSettings::GetDepthUpdateIntervalSeconds() const
 {
-	return 1.0f / float(FMath::Max(DepthCaptureUpdateRate, 1));
+	return 1.0f / float(FMath::Max(GroundInteractionDepthUpdateRate, 1));
 }
 
 #if WITH_EDITOR
@@ -33,12 +34,13 @@ void UGroundInteractionSettings::PostEditChangeProperty(FPropertyChangedEvent& P
 	Super::PostEditChangeProperty(PropertyChangedEvent);
 	
 	DepthFadeUpdateRate = FMath::Max(DepthFadeUpdateRate, 1);
-	DepthCaptureUpdateRate = FMath::Max(DepthCaptureUpdateRate, 1);
+	GroundInteractionDepthUpdateRate = FMath::Max(GroundInteractionDepthUpdateRate, 1);
+	GroundInteractionLocationSnapCellCount = FMath::Max(GroundInteractionLocationSnapCellCount, 1);
 
-	// DepthCaptureUpdateRate 빈도가  DepthFadeUpdateRate 빈도보다 낮아지지 않도록 함
-	if (DepthCaptureUpdateRate < DepthFadeUpdateRate)
+	// GroundInteractionDepthUpdateRate 빈도가  DepthFadeUpdateRate 빈도보다 낮아지지 않도록 함
+	if (GroundInteractionDepthUpdateRate < DepthFadeUpdateRate)
 	{
-		DepthCaptureUpdateRate = DepthFadeUpdateRate;
+		GroundInteractionDepthUpdateRate = DepthFadeUpdateRate;
 	}
 }
 #endif
