@@ -36,9 +36,7 @@ private:
 	void RegisterToSubsystem();
 	void UnregisterFromSubsystem();
 
-	void BuildProxies(
-		UGroundInteractionWorldSubsystem* Subsystem,
-		USkeletalMeshComponent* SkeletalMeshComp);
+	void BuildProxies(UGroundInteractionWorldSubsystem* Subsystem, USkeletalMeshComponent* SkeletalMeshComp);
 
 	UStaticMeshComponent* CreateProxy(
 		UGroundInteractionWorldSubsystem* Subsystem,

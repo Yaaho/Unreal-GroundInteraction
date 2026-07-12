@@ -4,6 +4,10 @@
 #include "GroundInteractionTargetComponent.h"
 #include "GroundInteractionProxyMeshComponent.h"
 #include "GroundInteractionWorldSubsystem.h"
+
+#include "Engine/World.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "GameFramework/Character.h"
 #include "PhysicsEngine/SkeletalBodySetup.h"
 #include "PhysicsEngine/PhysicsAsset.h"
@@ -184,11 +188,7 @@ void UGroundInteractionTargetComponent::BuildProxies(
 				continue;
 			}
 
-			const FTransform RelativeTransform(
-				BoxElem.Rotation.Quaternion(),
-				BoxElem.Center,
-				FVector::OneVector);
-
+			const FTransform RelativeTransform(BoxElem.Rotation.Quaternion(), BoxElem.Center, FVector::OneVector);
 			const FVector DesiredWorldSize(BoxElem.X, BoxElem.Y, BoxElem.Z);
 
 			if (UStaticMeshComponent* Proxy = CreateProxy(
@@ -211,11 +211,7 @@ void UGroundInteractionTargetComponent::BuildProxies(
 				continue;
 			}
 
-			const FTransform RelativeTransform(
-				FQuat::Identity,
-				SphereElem.Center,
-				FVector::OneVector);
-
+			const FTransform RelativeTransform(FQuat::Identity, SphereElem.Center, FVector::OneVector);
 			const float Diameter = SphereElem.Radius * 2.0f;
 			const FVector DesiredWorldSize(Diameter, Diameter, Diameter);
 
@@ -239,10 +235,7 @@ void UGroundInteractionTargetComponent::BuildProxies(
 				continue;
 			}
 
-			const FTransform RelativeTransform(
-				SphylElem.Rotation.Quaternion(),
-				SphylElem.Center,
-				FVector::OneVector);
+			const FTransform RelativeTransform(SphylElem.Rotation.Quaternion(), SphylElem.Center, FVector::OneVector);
 
 			const float Diameter = SphylElem.Radius * 2.0f;
 			const float FullHeight = SphylElem.Length + Diameter;
@@ -277,9 +270,7 @@ UStaticMeshComponent* UGroundInteractionTargetComponent::CreateProxy(
 		return nullptr;
 	}
 
-	UGroundInteractionProxyMeshComponent* ProxyComp = NewObject<UGroundInteractionProxyMeshComponent>(
-		OwnerActor,
-		MakeUniqueObjectName(OwnerActor, UGroundInteractionProxyMeshComponent::StaticClass(), TEXT("GIProxy")));
+	UGroundInteractionProxyMeshComponent* ProxyComp = NewObject<UGroundInteractionProxyMeshComponent>(OwnerActor, MakeUniqueObjectName(OwnerActor, UGroundInteractionProxyMeshComponent::StaticClass(), TEXT("GIProxy")));
 
 	if (!ProxyComp)
 	{
@@ -299,15 +290,8 @@ UStaticMeshComponent* UGroundInteractionTargetComponent::CreateProxy(
 	ProxyComp->bAffectDistanceFieldLighting = false;
 	
 	const FVector SourceFullSize = StaticMesh->GetBounds().BoxExtent * 2.0f;
-	const FVector SafeSourceSize(
-		FMath::Max(SourceFullSize.X, 1.0f),
-		FMath::Max(SourceFullSize.Y, 1.0f),
-		FMath::Max(SourceFullSize.Z, 1.0f));
-
-	const FVector RelativeScale3D(
-		DesiredWorldSize.X / SafeSourceSize.X,
-		DesiredWorldSize.Y / SafeSourceSize.Y,
-		DesiredWorldSize.Z / SafeSourceSize.Z);
+	const FVector SafeSourceSize(FMath::Max(SourceFullSize.X, 1.0f), FMath::Max(SourceFullSize.Y, 1.0f),FMath::Max(SourceFullSize.Z, 1.0f));
+	const FVector RelativeScale3D(DesiredWorldSize.X / SafeSourceSize.X, DesiredWorldSize.Y / SafeSourceSize.Y, DesiredWorldSize.Z / SafeSourceSize.Z);
 
 	FTransform FinalRelativeTransform = RelativeTransform;
 	FinalRelativeTransform.SetScale3D(RelativeScale3D);

@@ -6,8 +6,12 @@
 #include "GroundInteractionSettings.h"
 #include "GroundInteractionCommon.h"
 
+#include "Components/PrimitiveComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "Engine/World.h"
 #include "Kismet/KismetMaterialLibrary.h"
+#include "RenderingThread.h"
+#include "SceneView.h"
 
 UGroundInteractionRendererComponent::UGroundInteractionRendererComponent()
 {
@@ -35,11 +39,8 @@ void UGroundInteractionRendererComponent::OnComponentDestroyed(bool bDestroyingH
 	Super::OnComponentDestroyed(bDestroyingHierarchy);
 }
 
-void UGroundInteractionRendererComponent::InitializeRenderer(
-	UGroundInteractionWorldSubsystem* InSubsystem,
-	UTextureRenderTarget2D* InDepthRT,
-	UTextureRenderTarget2D* InFadeRT,
-	UMaterialParameterCollection* InMaterialParameterCollection)
+void UGroundInteractionRendererComponent::InitializeRenderer(UGroundInteractionWorldSubsystem* InSubsystem,
+	UTextureRenderTarget2D* InDepthRT, UTextureRenderTarget2D* InFadeRT, UMaterialParameterCollection* InMaterialParameterCollection)
 {
 	OwnerSubsystem = InSubsystem;
 	DepthRT = InDepthRT;
@@ -109,7 +110,7 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 }
 
 
-void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily)
+void UGroundInteractionRendererComponent::UpdateDepthCapture_GameThread(FSceneViewFamily& InViewFamily)
 {
 	check(IsInGameThread());
 
@@ -171,10 +172,7 @@ void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(
 		const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
 
 		ENQUEUE_RENDER_COMMAND(GroundInteractionUpdateRendererProxyRenderTargetSize)(
-			[
-				ProxyForCommand,
-				RenderTargetSizeForCommand
-			](FRHICommandListImmediate& RHICmdList)
+			[ProxyForCommand, RenderTargetSizeForCommand](FRHICommandListImmediate& RHICmdList)
 			{
 				if (!ProxyForCommand)
 				{
@@ -234,11 +232,8 @@ void UGroundInteractionRendererComponent::UpdateAndQueueDepthCapture_GameThread(
 }
 
 
-void UGroundInteractionRendererComponent::UpdateMPC(
-	const FVector& CaptureOriginWS,
-	const FVector& CaptureExtentWS) const
+void UGroundInteractionRendererComponent::UpdateMPC(const FVector& CaptureOriginWS, const FVector& CaptureExtentWS) const
 {
-
 	if (!GetWorld() || !MaterialParameterCollection)
 	{
 		return;
@@ -371,7 +366,6 @@ void UGroundInteractionRendererComponent::DestroyRenderProxy()
 	}
 
 	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
-
 	FSceneInterface* SceneForCommand = RegisteredScene;
 
 	RenderProxy = nullptr;
@@ -399,14 +393,10 @@ void UGroundInteractionRendererComponent::ApplyOutputRenderTargets()
 	}
 
 	InitOutputRenderTarget(DepthRT, RenderTargetSize, FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-
 	InitOutputRenderTarget(FadeRT, RenderTargetSize, FLinearColor(-32768.0f, 0.0f, 0.0f, 0.0f));
 }
 
-bool UGroundInteractionRendererComponent::InitOutputRenderTarget(
-	UTextureRenderTarget2D* RenderTarget,
-	const FIntPoint& Size,
-	const FLinearColor& ClearColor) const
+bool UGroundInteractionRendererComponent::InitOutputRenderTarget(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const
 {
 	if (!RenderTarget)
 	{

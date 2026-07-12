@@ -3,8 +3,10 @@
 #include "GroundInteractionProxyMeshComponent.h"
 
 #include "GroundInteractionCommon.h"
+
 #include "Rendering/CustomRenderPass.h"
 #include "SceneView.h"
+#include "Engine/StaticMesh.h"
 #include "StaticMeshSceneProxy.h"
 
 class FGroundInteractionProxyMeshSceneProxy final : public FStaticMeshSceneProxy

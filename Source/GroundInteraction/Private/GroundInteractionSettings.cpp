@@ -14,9 +14,7 @@ const UGroundInteractionSettings* UGroundInteractionSettings::Get()
 
 FIntPoint UGroundInteractionSettings::GetRenderTargetSize() const
 {
-	return FIntPoint(
-		FMath::Max(RenderTargetSizeX, 16),
-		FMath::Max(RenderTargetSizeY, 16));
+	return FIntPoint(FMath::Max(RenderTargetSizeX, 16), FMath::Max(RenderTargetSizeY, 16));
 }
 
 float UGroundInteractionSettings::GetDepthFadeUpdateIntervalSeconds() const

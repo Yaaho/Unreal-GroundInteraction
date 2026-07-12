@@ -5,17 +5,16 @@
 #include "GroundInteractionRendererProxy.h"
 #include "GroundInteractionRendererComponent.h"
 
-FGroundInteractionSceneViewExtension::FGroundInteractionSceneViewExtension(
-	const FAutoRegister& AutoRegister,
-	UGroundInteractionWorldSubsystem* InSubsystem,
-	UWorld* InWorld)
-	: FWorldSceneViewExtension(AutoRegister, InWorld)
-	, OwnerSubsystem(InSubsystem)
+#include "Runtime\Engine\Public\SceneView.h"
+
+
+
+FGroundInteractionSceneViewExtension::FGroundInteractionSceneViewExtension(const FAutoRegister& AutoRegister, UGroundInteractionWorldSubsystem* InSubsystem, UWorld* InWorld)
+	: FWorldSceneViewExtension(AutoRegister, InWorld), OwnerSubsystem(InSubsystem)
 {
 }
 
-bool FGroundInteractionSceneViewExtension::IsActiveThisFrame_Internal(
-	const FSceneViewExtensionContext& Context) const
+bool FGroundInteractionSceneViewExtension::IsActiveThisFrame_Internal(const FSceneViewExtensionContext& Context) const
 {
 	if (!FWorldSceneViewExtension::IsActiveThisFrame_Internal(Context))
 	{
@@ -67,7 +66,7 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 		return;
 	}
 
-	RendererComponent->UpdateAndQueueDepthCapture_GameThread(InViewFamily);
+	RendererComponent->UpdateDepthCapture_GameThread(InViewFamily);
 }
 
 

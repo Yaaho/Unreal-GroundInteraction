@@ -10,10 +10,7 @@ class UGroundInteractionWorldSubsystem;
 class FGroundInteractionSceneViewExtension : public FWorldSceneViewExtension
 {
 public:
-	FGroundInteractionSceneViewExtension(
-		const FAutoRegister& AutoRegister,
-		UGroundInteractionWorldSubsystem* InSubsystem,
-		UWorld* InWorld);
+	FGroundInteractionSceneViewExtension(const FAutoRegister& AutoRegister, UGroundInteractionWorldSubsystem* InSubsystem, UWorld* InWorld);
 
 	virtual ~FGroundInteractionSceneViewExtension() override = default;
 

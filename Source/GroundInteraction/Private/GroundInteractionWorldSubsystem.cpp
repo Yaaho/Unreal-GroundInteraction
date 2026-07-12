@@ -6,8 +6,9 @@
 #include "GroundInteractionRendererComponent.h"
 #include "GroundInteractionTargetComponent.h"
 
+#include "Engine/StaticMesh.h"
+#include "Engine/Level.h"
 #include "Components/PrimitiveComponent.h"
-
 #include "Engine/TextureRenderTarget2D.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Engine/AssetManager.h"
@@ -16,20 +17,15 @@
 namespace GroundInteractionAssetPaths
 {
 	// 플러그인에서 사용하는 기본 에셋들
-	static const FSoftObjectPath DepthRT(
-		TEXT("/GroundInteraction/RT/RT_GroundInteractionDepth.RT_GroundInteractionDepth"));
+	static const FSoftObjectPath DepthRT(TEXT("/GroundInteraction/RT/RT_GroundInteractionDepth.RT_GroundInteractionDepth"));
 	
-	static const FSoftObjectPath FadeRT(
-		TEXT("/GroundInteraction/RT/RT_GroundInteractionFade.RT_GroundInteractionFade"));
+	static const FSoftObjectPath FadeRT(TEXT("/GroundInteraction/RT/RT_GroundInteractionFade.RT_GroundInteractionFade"));
 	
-	static const FSoftObjectPath CubeMesh(
-		TEXT("/GroundInteraction/Mesh/Cube.Cube"));
+	static const FSoftObjectPath CubeMesh(TEXT("/GroundInteraction/Mesh/Cube.Cube"));
 	
-	static const FSoftObjectPath SphereMesh(
-		TEXT("/GroundInteraction/Mesh/Sphere.Sphere"));
+	static const FSoftObjectPath SphereMesh(TEXT("/GroundInteraction/Mesh/Sphere.Sphere"));
 	
-	static const FSoftObjectPath CapsuleMesh(
-		TEXT("/GroundInteraction/Mesh/Capsule.Capsule"));
+	static const FSoftObjectPath CapsuleMesh(TEXT("/GroundInteraction/Mesh/Capsule.Capsule"));
 }
 
 void UGroundInteractionWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -84,9 +80,7 @@ void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
 {
 	(void)DeltaTime;
 
-	if (!bAssetsReady ||
-		!RendererActor ||
-		!RendererComponent)
+	if (!bAssetsReady || !RendererActor || !RendererComponent)
 	{
 		return;
 	}
@@ -98,27 +92,20 @@ void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
 		return;
 	}
 	
-	// 플레이어 카메라 위치를 렌더 액터 위치로 설정
+	// 렌더러 액터 위치를 플레이어 위치로 설정
 	RendererActor->SetActorLocation(RawCameraLocationWS);
 }
 
 TStatId UGroundInteractionWorldSubsystem::GetStatId() const
 {
-	RETURN_QUICK_DECLARE_CYCLE_STAT(
-		UGroundInteractionWorldSubsystem,
-		STATGROUP_Tickables);
+	RETURN_QUICK_DECLARE_CYCLE_STAT(UGroundInteractionWorldSubsystem, STATGROUP_Tickables);
 }
 
 bool UGroundInteractionWorldSubsystem::IsTickable() const
 {
 	const UWorld* World = GetWorld();
 
-	return
-		World &&
-		!World->IsNetMode(NM_DedicatedServer) &&
-		bAssetsReady &&
-		RendererActor &&
-		RendererComponent;
+	return World && !World->IsNetMode(NM_DedicatedServer) && bAssetsReady && RendererActor && RendererComponent;
 }
 
 void UGroundInteractionWorldSubsystem::RegisterTarget(UGroundInteractionTargetComponent* Target)
@@ -188,9 +175,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 		AssetsToLoad.Add(Settings->MaterialParameterCollection.ToSoftObjectPath());
 	}
 
-	AssetLoadHandle = UAssetManager::GetStreamableManager().RequestAsyncLoad(
-		AssetsToLoad,
-		FStreamableDelegate::CreateUObject(this, &UGroundInteractionWorldSubsystem::OnAssetsLoaded));
+	AssetLoadHandle = UAssetManager::GetStreamableManager().RequestAsyncLoad(AssetsToLoad, FStreamableDelegate::CreateUObject(this, &UGroundInteractionWorldSubsystem::OnAssetsLoaded));
 }
 
 void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
@@ -276,10 +261,7 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
 	if (!RendererActor)
 	{
 		FActorSpawnParameters SpawnParams;
-		SpawnParams.Name = MakeUniqueObjectName(
-			World->PersistentLevel,
-			AActor::StaticClass(),
-			TEXT("GroundInteractionRendererActor"));
+		SpawnParams.Name = MakeUniqueObjectName(World->PersistentLevel, AActor::StaticClass(), TEXT("GroundInteractionRendererActor"));
 
 		SpawnParams.ObjectFlags |= RF_Transient;
 
@@ -329,8 +311,7 @@ void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
 	}
 }
 
-bool UGroundInteractionWorldSubsystem::GetPlayerCameraLocation(
-	FVector& OutCameraLocationWS) const
+bool UGroundInteractionWorldSubsystem::GetPlayerCameraLocation(FVector& OutCameraLocationWS) const
 {
 	const UWorld* World = GetWorld();
 

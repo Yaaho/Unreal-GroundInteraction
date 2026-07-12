@@ -3,6 +3,9 @@
 #include "GroundInteraction.h"
 #include "Interfaces/IPluginManager.h"
 
+#include "ShaderCore.h"
+#include "Misc/Paths.h"
+
 #define LOCTEXT_NAMESPACE "FGroundInteractionModule"
 
 void FGroundInteractionModule::StartupModule()

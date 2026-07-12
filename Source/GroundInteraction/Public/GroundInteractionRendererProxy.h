@@ -3,6 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RenderGraphFwd.h"
+#include "PixelFormat.h"
+#include "RenderDeferredCleanup.h"
+#include "RHICommandList.h"
+#include "SceneView.h"
+
+struct IPooledRenderTarget;
 
 // 프록시 내부 렌더 타겟에 쓰이는 구조체
 struct FPlaneTexture
@@ -25,26 +32,16 @@ struct FPlaneTexture
 	}
 	
 	// 필요한 크기/포맷의 pooled render target 보장
-	bool CheckPooledTarget(
-		FRHICommandListImmediate& RHICmdList,
-		const FIntPoint& InSize,
-		EPixelFormat InFormat,
-		const TCHAR* DebugName);
+	bool CheckPooledTarget(FRHICommandListImmediate& RHICmdList, const FIntPoint& InSize, EPixelFormat InFormat, const TCHAR* DebugName);
 
 	// pooled target을 현재 RDG graph의 texture로 등록
-	FRDGTextureRef GetOrCreateTexture(
-		FRDGBuilder& GraphBuilder,
-		const TCHAR* Name);
+	FRDGTextureRef GetOrCreateTexture(FRDGBuilder& GraphBuilder, const TCHAR* Name);
 
 	// 현재 RDG graph의 SRV 반환
-	FRDGTextureSRVRef GetOrCreateSRV(
-		FRDGBuilder& GraphBuilder,
-		const TCHAR* Name);
+	FRDGTextureSRVRef GetOrCreateSRV(FRDGBuilder& GraphBuilder, const TCHAR* Name);
 
 	// 현재 RDG graph의 UAV 반환
-	FRDGTextureUAVRef GetOrCreateUAV(
-		FRDGBuilder& GraphBuilder,
-		const TCHAR* Name);
+	FRDGTextureUAVRef GetOrCreateUAV(FRDGBuilder& GraphBuilder, const TCHAR* Name);
 };
 
 
@@ -64,9 +61,7 @@ public:
 	virtual ~FGroundInteractionRendererProxy() override = default;
 
 	// SVE 에서 호출되는 함수
-	void Render(
-		FRDGBuilder& GraphBuilder,
-		FSceneViewFamily& InViewFamily);
+	void Render(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily);
 	
 	// Depth Capture CustomRenderPass 추가 함수
 	// 게임 스레드에서 호출됨
@@ -80,18 +75,13 @@ public:
 	void Release();
 	
 	// 컴포넌트 등록 시 호출되는 함수
-	static void RegisterProxy(
-		FSceneInterface* InScene,
-		FGroundInteractionRendererProxy* InProxy);
+	static void RegisterProxy(FSceneInterface* InScene,FGroundInteractionRendererProxy* InProxy);
 
 	// 컴포넌트 해제 시 호출되는 함수
-	static void UnregisterProxy(
-		FSceneInterface* InScene,
-		FGroundInteractionRendererProxy* InProxy);
+	static void UnregisterProxy(FSceneInterface* InScene,FGroundInteractionRendererProxy* InProxy);
 	
 	// 프록시 목록을 반환하는 함수
-	static TArray<FGroundInteractionRendererProxy*> GetProxies(
-		FSceneInterface* InScene);
+	static TArray<FGroundInteractionRendererProxy*> GetProxies(FSceneInterface* InScene);
 	
 	
 public:
@@ -114,15 +104,10 @@ public:
 	
 private:
 	// DepthFadeTextures 생성 및 RT 사이즈가 바뀌었을 시 초기화 하는 함수
-	void CheckDepthFadeTextures(
-		FRDGBuilder& GraphBuilder,
-		const FIntPoint& InRenderTargetSize,
-		bool bClearAll);
+	void CheckDepthFadeTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll);
 	
 	// Output RT 에 결과를 복사하는 함수
-	void CopyDepthFadeToOutput(
-		FRDGBuilder& GraphBuilder,
-		int32 DepthFadeTextureId);
+	void CopyDepthFadeToOutput(FRDGBuilder& GraphBuilder, int32 DepthFadeTextureId);
 	
 	// DepthFadeTextures 의 transient RDG ref 초기화 함수
 	void ResetDepthFadeTransientRefs();
@@ -150,19 +135,13 @@ private:
 	// 캡쳐 월드 위치를 가져오는 함수
 	FVector GetCaptureOriginWS() const
 	{
-		return FVector(
-			CurrentSnappedLocation.X,
-			CurrentSnappedLocation.Y,
-			CurrentSnappedLocation.Z - CaptureExtentWS.Z);
+		return FVector(CurrentSnappedLocation.X, CurrentSnappedLocation.Y, CurrentSnappedLocation.Z - CaptureExtentWS.Z);
 	}
 	
 	// 이전 프레임의 캡쳐 위치를 가져오는 함수
 	FVector GetPreviousCaptureOriginWS() const
 	{
-		return FVector(
-			PreviousSnappedLocation.X,
-			PreviousSnappedLocation.Y,
-			PreviousSnappedLocation.Z - CaptureExtentWS.Z);
+		return FVector(PreviousSnappedLocation.X,PreviousSnappedLocation.Y, PreviousSnappedLocation.Z - CaptureExtentWS.Z);
 	}
 	
 	// 최대 씬댑스를 가져오는 함수
@@ -176,11 +155,7 @@ private:
 		return FMath::Clamp(GetMaxSceneDepth() * 0.0005f, 0.1f, 2.0f);
 	}
 
-	static FMatrix BuildBottomUpOrthoProjection(
-		float HalfExtentX,
-		float HalfExtentY,
-		float MaxDepth);
-	
+	static FMatrix BuildBottomUpOrthoProjection(float HalfExtentX, float HalfExtentY, float MaxDepth);
 	
 private:
 	FTextureReferenceRHIRef OutputDepthTextureReferenceRHI;
@@ -208,5 +183,4 @@ private:
 	bool bReleased = false;
 	bool bClearDepthFadeTextures = true;
 };
-
 

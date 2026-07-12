@@ -6,6 +6,7 @@
 #include "RenderTargetPool.h"
 #include "Rendering/CustomRenderPass.h"
 #include "Runtime/Renderer/Private/SceneRendering.h"
+#include "Runtime\Engine\Public\SceneInterface.h"
 
 #include "GlobalShader.h"
 
@@ -33,16 +34,12 @@ public:
 		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
 	}
 
-	static void ModifyCompilationEnvironment(
-		const FGlobalShaderPermutationParameters& Parameters,
-		FShaderCompilerEnvironment& OutEnvironment)
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
 	}
 
@@ -76,16 +73,11 @@ public:
 		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
 	}
 
-	static void ModifyCompilationEnvironment(
-		const FGlobalShaderPermutationParameters& Parameters,
-		FShaderCompilerEnvironment& OutEnvironment)
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
 	}
 
@@ -113,16 +105,12 @@ public:
 		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
 	}
 
-	static void ModifyCompilationEnvironment(
-		const FGlobalShaderPermutationParameters& Parameters,
-		FShaderCompilerEnvironment& OutEnvironment)
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-
 		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
 	}
 
@@ -170,21 +158,18 @@ public:
 	{
 		const FIntPoint SafeSize(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
-		const bool bNeedsAlloc =
-			!CapturedDepthPooledTarget.IsValid() ||
-			CapturedDepthPooledTarget->GetDesc().Extent != SafeSize ||
-			CapturedDepthPooledTarget->GetDesc().Format != PF_R32_FLOAT;
+		const bool bNeedsAllocateRenderTarget = 
+			!CapturedDepthPooledTarget.IsValid() || CapturedDepthPooledTarget->GetDesc().Extent != SafeSize || CapturedDepthPooledTarget->GetDesc().Format != PF_R32_FLOAT;
 
-		if (bNeedsAlloc)
+		if (bNeedsAllocateRenderTarget)
 		{
-			FPooledRenderTargetDesc Desc =
-				FPooledRenderTargetDesc::Create2DDesc(
-					SafeSize,
-					PF_R32_FLOAT,
-					FClearValueBinding::Black,
-					TexCreate_None,
-					TexCreate_RenderTargetable | TexCreate_ShaderResource,
-					false);
+			FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(
+				SafeSize,
+				PF_R32_FLOAT,
+				FClearValueBinding::Black,
+				TexCreate_None,
+				TexCreate_RenderTargetable | TexCreate_ShaderResource,
+				false);
 
 			Desc.DebugName = TEXT("GI_CapturedDepth");
 
@@ -243,9 +228,7 @@ public:
 
 private:
 	FGroundInteractionRendererProxy* OwnerProxy = nullptr;
-
 	FIntPoint RenderTargetSize = FIntPoint(1, 1);
-	
 	FVector CaptureViewLocation = FVector::ZeroVector;
 
 	float MaxDepth = 1.0f;
@@ -259,9 +242,7 @@ private:
 
 
 IMPLEMENT_GLOBAL_SHADER(FMoveCS, "/Plugin/GroundInteraction/GroundInteractionMove.usf", "MainCS", SF_Compute);
-
 IMPLEMENT_GLOBAL_SHADER(FFadeCS, "/Plugin/GroundInteraction/GroundInteractionFade.usf", "MainCS", SF_Compute);
-
 IMPLEMENT_GLOBAL_SHADER(FUpdateDepthCS, "/Plugin/GroundInteraction/GroundInteractionUpdateDepth.usf", "MainCS", SF_Compute);
 
 
@@ -299,23 +280,11 @@ static void AddMovePass(
 
 	TShaderMapRef<FMoveCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
 
-	const FIntVector DispatchCount =
-		FComputeShaderUtils::GetGroupCount(
-			FIntVector(
-				NumCells.X,
-				NumCells.Y,
-				1),
-			FIntVector(
-				GROUP_SIZE_X,
-				GROUP_SIZE_Y,
-				GROUP_SIZE_Z));
+	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
+			FIntVector(NumCells.X, NumCells.Y, 1),
+			FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
 
-	FComputeShaderUtils::AddPass(
-		GraphBuilder,
-		RDG_EVENT_NAME("GroundInteraction.Move"),
-		ComputeShader,
-		PassParameters,
-		DispatchCount);
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.Move"), ComputeShader, PassParameters, DispatchCount);
 }
 
 
@@ -342,23 +311,11 @@ static void AddFadePass(
 
 	TShaderMapRef<FFadeCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
 
-	const FIntVector DispatchCount =
-		FComputeShaderUtils::GetGroupCount(
-			FIntVector(
-				NumCells.X,
-				NumCells.Y,
-				1),
-			FIntVector(
-				GROUP_SIZE_X,
-				GROUP_SIZE_Y,
-				GROUP_SIZE_Z));
+	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
+			FIntVector(NumCells.X, NumCells.Y, 1),
+			FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
 
-	FComputeShaderUtils::AddPass(
-		GraphBuilder,
-		RDG_EVENT_NAME("GroundInteraction.Fade"),
-		ComputeShader,
-		PassParameters,
-		DispatchCount);
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.Fade"), ComputeShader, PassParameters, DispatchCount);
 }
 
 
@@ -389,23 +346,11 @@ static void AddUpdateDepthPass(
 
 	TShaderMapRef<FUpdateDepthCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
 
-	const FIntVector DispatchCount =
-		FComputeShaderUtils::GetGroupCount(
-			FIntVector(
-				NumCells.X,
-				NumCells.Y,
-				1),
-			FIntVector(
-				GROUP_SIZE_X,
-				GROUP_SIZE_Y,
-				GROUP_SIZE_Z));
+	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
+		FIntVector(NumCells.X, NumCells.Y, 1),
+		FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
 	
-	FComputeShaderUtils::AddPass(
-		GraphBuilder,
-		RDG_EVENT_NAME("GroundInteraction.UpdateDepth"),
-		ComputeShader,
-		PassParameters,
-		DispatchCount);
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.UpdateDepth"), ComputeShader, PassParameters, DispatchCount);
 }
 
 
@@ -413,9 +358,9 @@ bool FPlaneTexture::CheckPooledTarget(FRHICommandListImmediate& RHICmdList, cons
 {
 	const FIntPoint SafeSize(FMath::Max(InSize.X, 1), FMath::Max(InSize.Y, 1));
 
-	const bool bNeedsAlloc = !PooledTarget.IsValid() || AllocatedSize != SafeSize || AllocatedFormat != InFormat;
+	const bool bNeedsAllocateRenderTarget = !PooledTarget.IsValid() || AllocatedSize != SafeSize || AllocatedFormat != InFormat;
 
-	if (!bNeedsAlloc)
+	if (!bNeedsAllocateRenderTarget)
 	{
 		return false;
 	}
@@ -525,9 +470,7 @@ FGroundInteractionRendererProxy::FGroundInteractionRendererProxy(
 }
 
 
-void FGroundInteractionRendererProxy::Render(
-	FRDGBuilder& GraphBuilder,
-	FSceneViewFamily& InViewFamily)
+void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily)
 {
 	check(IsInRenderingThread());
 
@@ -560,9 +503,7 @@ void FGroundInteractionRendererProxy::Render(
 	if (bRenderTargetChanged)
 	{
 		bRenderTargetChanged = false;
-
 		CurrentStateIndex = 0;
-
 		FadeUpdateAccumulatorSeconds = 0.0f;
 
 		bHasPreviousCapture = false;
@@ -592,9 +533,7 @@ void FGroundInteractionRendererProxy::Render(
 	if (bHasPreviousCapture)
 	{
 		const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(CaptureExtentWS, RenderTargetSize);
-
 		CaptureScrollPixels.X = FMath::RoundToInt((CurrentSnappedLocation.X - PreviousSnappedLocation.X) / UnitsPerPixel.X);
-
 		CaptureScrollPixels.Y =- FMath::RoundToInt((CurrentSnappedLocation.Y - PreviousSnappedLocation.Y) / UnitsPerPixel.Y);
 	}
 	
@@ -603,37 +542,26 @@ void FGroundInteractionRendererProxy::Render(
 	if (bHasPreviousCapture && CaptureScrollPixels != FIntPoint::ZeroValue)
 	{
 		FPlaneTexture& PreviousDepth = DepthFadeTextures[GetPrevDepthFadeTextureId()][DEPTH_FADE_CHANNEL_DEPTH];
-
 		FPlaneTexture& PreviousFade = DepthFadeTextures[GetPrevDepthFadeTextureId()][DEPTH_FADE_CHANNEL_FADE];
-
 		FPlaneTexture& CurrentDepth = DepthFadeTextures[GetCurrentDepthFadeTextureId()][DEPTH_FADE_CHANNEL_DEPTH];
-
 		FPlaneTexture& CurrentFade = DepthFadeTextures[GetCurrentDepthFadeTextureId()][DEPTH_FADE_CHANNEL_FADE];
 
 		FRDGTextureRef PreviousDepthTexture = PreviousDepth.GetOrCreateTexture(GraphBuilder, TEXT("Move_PreviousDepth"));
-
 		FRDGTextureRef PreviousFadeTexture = PreviousFade.GetOrCreateTexture(GraphBuilder, TEXT("Move_PreviousFade"));
-
+		
 		FRDGTextureSRVRef PreviousDepthSRV = PreviousDepth.GetOrCreateSRV(GraphBuilder, TEXT("Move_PreviousDepth"));
-
 		FRDGTextureSRVRef PreviousFadeSRV = PreviousFade.GetOrCreateSRV(GraphBuilder, TEXT("Move_PreviousFade"));
 
 		FRDGTextureRef CurrentDepthTexture = CurrentDepth.GetOrCreateTexture(GraphBuilder, TEXT("Move_CurrentDepth"));
-
 		FRDGTextureRef CurrentFadeTexture = CurrentFade.GetOrCreateTexture(GraphBuilder, TEXT("Move_CurrentFade"));
 
 		FRDGTextureUAVRef CurrentDepthUAV = CurrentDepth.GetOrCreateUAV(GraphBuilder, TEXT("Move_CurrentDepth"));
-
 		FRDGTextureUAVRef CurrentFadeUAV = CurrentFade.GetOrCreateUAV(GraphBuilder, TEXT("Move_CurrentFade"));
 
-		if (PreviousDepthTexture &&
-			PreviousFadeTexture &&
-			PreviousDepthSRV &&
-			PreviousFadeSRV &&
-			CurrentDepthTexture &&
-			CurrentFadeTexture &&
-			CurrentDepthUAV &&
-			CurrentFadeUAV)
+		if (PreviousDepthTexture && PreviousFadeTexture &&
+			PreviousDepthSRV && PreviousFadeSRV &&
+			CurrentDepthTexture && CurrentFadeTexture &&
+			CurrentDepthUAV && CurrentFadeUAV)
 		{
 			GraphBuilder.UseInternalAccessMode(PreviousDepthTexture);
 			GraphBuilder.UseInternalAccessMode(PreviousFadeTexture);
@@ -671,24 +599,19 @@ void FGroundInteractionRendererProxy::Render(
 	if (FadeUpdateAccumulatorSeconds >= FadeUpdateIntervalSeconds)
 	{
 		const int32 FadeStepCount = FMath::Max(FMath::FloorToInt(FadeUpdateAccumulatorSeconds / FadeUpdateIntervalSeconds), 1);
-
 		FadeDeltaTimeSeconds = static_cast<float>(FadeStepCount) * FadeUpdateIntervalSeconds;
-
 		FadeUpdateAccumulatorSeconds -= FadeDeltaTimeSeconds;
 	}
 
 	if (FadeDeltaTimeSeconds > 0.0f)
 	{
 		FPlaneTexture& Depth = DepthFadeTextures[CurrentStateIndex][DEPTH_FADE_CHANNEL_DEPTH];
-
 		FPlaneTexture& Fade = DepthFadeTextures[CurrentStateIndex][DEPTH_FADE_CHANNEL_FADE];
 
 		FRDGTextureRef DepthTexture = Depth.GetOrCreateTexture(GraphBuilder, TEXT("Fade_Depth"));
-
 		FRDGTextureRef FadeTexture = Fade.GetOrCreateTexture(GraphBuilder, TEXT("Fade_Fade"));
 
 		FRDGTextureUAVRef DepthUAV = Depth.GetOrCreateUAV(GraphBuilder, TEXT("Fade_Depth"));
-
 		FRDGTextureUAVRef FadeUAV = Fade.GetOrCreateUAV(GraphBuilder, TEXT("Fade_Fade"));
 
 		if (DepthTexture && FadeTexture && DepthUAV && FadeUAV)
@@ -712,11 +635,7 @@ void FGroundInteractionRendererProxy::Render(
 }
 
 
-void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(
-	FSceneViewFamily& InViewFamily,
-	const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
-	const FVector& CaptureViewLocation,
-	const FIntPoint& CaptureRenderTargetSize)
+void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(FSceneViewFamily& InViewFamily, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& CaptureViewLocation, const FIntPoint& CaptureRenderTargetSize)
 {
 	check(IsInGameThread());
 
@@ -728,7 +647,6 @@ void FGroundInteractionRendererProxy::QueueDepthCapture_GameThread(
 	const FIntPoint SafeRenderTargetSize(FMath::Max(CaptureRenderTargetSize.X, 1), FMath::Max(CaptureRenderTargetSize.Y, 1));
 
 	const float HalfExtentX = FMath::Max(CaptureExtentWS.X, 1.0f);
-
 	const float HalfExtentY = FMath::Max(CaptureExtentWS.Y, 1.0f);
 
 	const FVector CaptureLookAt = CaptureViewLocation + FVector(0.0f, 0.0f, 1.0f);
@@ -774,9 +692,7 @@ void FGroundInteractionRendererProxy::Release()
 	bReleased = true;
 }
 
-void FGroundInteractionRendererProxy::RegisterProxy(
-	FSceneInterface* InScene,
-	FGroundInteractionRendererProxy* InProxy)
+void FGroundInteractionRendererProxy::RegisterProxy(FSceneInterface* InScene, FGroundInteractionRendererProxy* InProxy)
 {
 	check(IsInRenderingThread());
 
@@ -788,9 +704,7 @@ void FGroundInteractionRendererProxy::RegisterProxy(
 	ProxiesByScene.FindOrAdd(InScene).AddUnique(InProxy);
 }
 
-void FGroundInteractionRendererProxy::UnregisterProxy(
-	FSceneInterface* InScene,
-	FGroundInteractionRendererProxy* InProxy)
+void FGroundInteractionRendererProxy::UnregisterProxy(FSceneInterface* InScene, FGroundInteractionRendererProxy* InProxy)
 {
 	check(IsInRenderingThread());
 
@@ -814,8 +728,7 @@ void FGroundInteractionRendererProxy::UnregisterProxy(
 	}
 }
 
-TArray<FGroundInteractionRendererProxy*> FGroundInteractionRendererProxy::GetProxies(
-	FSceneInterface* InScene)
+TArray<FGroundInteractionRendererProxy*> FGroundInteractionRendererProxy::GetProxies(FSceneInterface* InScene)
 {
 	check(IsInRenderingThread());
 
@@ -857,15 +770,12 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 	const int32 DepthFadeTextureId = CurrentStateIndex;
 
 	FPlaneTexture& Depth = DepthFadeTextures[DepthFadeTextureId][DEPTH_FADE_CHANNEL_DEPTH];
-
 	FPlaneTexture& Fade = DepthFadeTextures[DepthFadeTextureId][DEPTH_FADE_CHANNEL_FADE];
 
 	FRDGTextureRef DepthTexture = Depth.GetOrCreateTexture(GraphBuilder, TEXT("UpdateDepth_Depth"));
-
 	FRDGTextureRef FadeTexture = Fade.GetOrCreateTexture(GraphBuilder, TEXT("UpdateDepth_Fade"));
 
 	FRDGTextureUAVRef DepthUAV = Depth.GetOrCreateUAV(GraphBuilder, TEXT("UpdateDepth_Depth"));
-
 	FRDGTextureUAVRef FadeUAV = Fade.GetOrCreateUAV(GraphBuilder, TEXT("UpdateDepth_Fade"));
 
 	if (!DepthTexture || !FadeTexture || !DepthUAV || !FadeUAV)
@@ -881,12 +791,8 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 
 	// PassCaptureViewLocation 와 CurrentCaptureViewLocation 의 픽셀 오프셋 차이 계산
 	const FIntPoint CaptureScrollPixels(
-		FMath::RoundToInt(
-			(CurrentCaptureViewLocation.X - PassCaptureViewLocation.X) /
-			UnitsPerPixel.X),
-		-FMath::RoundToInt(
-			(CurrentCaptureViewLocation.Y - PassCaptureViewLocation.Y) /
-			UnitsPerPixel.Y));
+		FMath::RoundToInt((CurrentCaptureViewLocation.X - PassCaptureViewLocation.X) / UnitsPerPixel.X),
+		-FMath::RoundToInt((CurrentCaptureViewLocation.Y - PassCaptureViewLocation.Y) / UnitsPerPixel.Y));
 	
 	// PassCaptureViewLocation 와 CurrentCaptureViewLocation 의 Z 위치 차이 계산
 	const float CaptureDepthOffsetZ = static_cast<float>(PassCaptureViewLocation.Z - CurrentCaptureViewLocation.Z);
@@ -917,14 +823,9 @@ void FGroundInteractionRendererProxy::UpdateCapturedDepth(
 	}
 }
 
-void FGroundInteractionRendererProxy::CheckDepthFadeTextures(
-	FRDGBuilder& GraphBuilder,
-	const FIntPoint& InRenderTargetSize,
-	bool bClearAll)
+void FGroundInteractionRendererProxy::CheckDepthFadeTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll)
 {
-	const FIntPoint SafeSize(
-		FMath::Max(InRenderTargetSize.X, 1),
-		FMath::Max(InRenderTargetSize.Y, 1));
+	const FIntPoint SafeSize(FMath::Max(InRenderTargetSize.X, 1), FMath::Max(InRenderTargetSize.Y, 1));
 
 	bool bAllocatedAny = false;
 
@@ -951,13 +852,7 @@ void FGroundInteractionRendererProxy::CheckDepthFadeTextures(
 				DebugName = TEXT("DepthFade_1_Fade");
 			}
 
-			bAllocatedAny |=
-				DepthFadeTextures[TextureId][ChannelIndex]
-					.CheckPooledTarget(
-						GraphBuilder.RHICmdList,
-						SafeSize,
-						DEPTH_FADE_PIXEL_FORMAT,
-						DebugName);
+			bAllocatedAny |= DepthFadeTextures[TextureId][ChannelIndex].CheckPooledTarget(GraphBuilder.RHICmdList, SafeSize, DEPTH_FADE_PIXEL_FORMAT, DebugName);
 		}
 	}
 
@@ -973,28 +868,13 @@ void FGroundInteractionRendererProxy::CheckDepthFadeTextures(
 	for (int32 TextureId = 0; TextureId < 2; ++TextureId)
 	{
 		FPlaneTexture& Depth = DepthFadeTextures[TextureId][DEPTH_FADE_CHANNEL_DEPTH];
-
 		FPlaneTexture& Fade = DepthFadeTextures[TextureId][DEPTH_FADE_CHANNEL_FADE];
 
-		FRDGTextureRef DepthTexture =
-			Depth.GetOrCreateTexture(
-				GraphBuilder,
-				TEXT("DepthFade_ClearDepth"));
+		FRDGTextureRef DepthTexture = Depth.GetOrCreateTexture(GraphBuilder, TEXT("DepthFade_ClearDepth"));
+		FRDGTextureRef FadeTexture = Fade.GetOrCreateTexture(GraphBuilder, TEXT("DepthFade_ClearFade"));
 
-		FRDGTextureRef FadeTexture =
-			Fade.GetOrCreateTexture(
-				GraphBuilder,
-				TEXT("DepthFade_ClearFade"));
-
-		FRDGTextureUAVRef DepthUAV =
-			Depth.GetOrCreateUAV(
-				GraphBuilder,
-				TEXT("DepthFade_ClearDepth"));
-
-		FRDGTextureUAVRef FadeUAV =
-			Fade.GetOrCreateUAV(
-				GraphBuilder,
-				TEXT("DepthFade_ClearFade"));
+		FRDGTextureUAVRef DepthUAV = Depth.GetOrCreateUAV(GraphBuilder, TEXT("DepthFade_ClearDepth"));
+		FRDGTextureUAVRef FadeUAV = Fade.GetOrCreateUAV(GraphBuilder, TEXT("DepthFade_ClearFade"));
 
 		if (!DepthTexture || !FadeTexture || !DepthUAV || !FadeUAV)
 		{
@@ -1004,14 +884,8 @@ void FGroundInteractionRendererProxy::CheckDepthFadeTextures(
 		GraphBuilder.UseInternalAccessMode(DepthTexture);
 		GraphBuilder.UseInternalAccessMode(FadeTexture);
 
-		AddClearUAVPass(GraphBuilder,
-			DepthUAV,
-			FVector4f(0.0f, 0.0f, 0.0f, 0.0f));
-
-		AddClearUAVPass(
-			GraphBuilder,
-			FadeUAV,
-			FVector4f(-32768.0f, 0.0f, 0.0f, 0.0f));
+		AddClearUAVPass(GraphBuilder, DepthUAV, FVector4f(0.0f, 0.0f, 0.0f, 0.0f));
+		AddClearUAVPass(GraphBuilder, FadeUAV, FVector4f(-32768.0f, 0.0f, 0.0f, 0.0f));
 
 		GraphBuilder.SetTextureAccessFinal(DepthTexture, ERHIAccess::SRVMask);
 		GraphBuilder.SetTextureAccessFinal(FadeTexture, ERHIAccess::SRVMask);
@@ -1019,9 +893,7 @@ void FGroundInteractionRendererProxy::CheckDepthFadeTextures(
 }
 
 
-void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
-	FRDGBuilder& GraphBuilder,
-	int32 DepthFadeTextureId)
+void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(FRDGBuilder& GraphBuilder, int32 DepthFadeTextureId)
 {
 	check(IsInRenderingThread());
 
@@ -1033,8 +905,7 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
 	FTextureRHIRef OutputDepthTextureRHI = nullptr;
 	if (OutputDepthTextureReferenceRHI.IsValid())
 	{
-		if (FRHITexture* Texture =
-			OutputDepthTextureReferenceRHI->GetReferencedTexture())
+		if (FRHITexture* Texture = OutputDepthTextureReferenceRHI->GetReferencedTexture())
 		{
 			OutputDepthTextureRHI = FTextureRHIRef(Texture);
 		}
@@ -1043,8 +914,7 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
 	FTextureRHIRef OutputFadeTextureRHI = nullptr;
 	if (OutputFadeTextureReferenceRHI.IsValid())
 	{
-		if (FRHITexture* Texture =
-			OutputFadeTextureReferenceRHI->GetReferencedTexture())
+		if (FRHITexture* Texture = OutputFadeTextureReferenceRHI->GetReferencedTexture())
 		{
 			OutputFadeTextureRHI = FTextureRHIRef(Texture);
 		}
@@ -1056,15 +926,12 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
 	}
 	
 	FPlaneTexture& Depth = DepthFadeTextures[DepthFadeTextureId][DEPTH_FADE_CHANNEL_DEPTH];
-
 	FPlaneTexture& Fade = DepthFadeTextures[DepthFadeTextureId][DEPTH_FADE_CHANNEL_FADE];
 
 	FRDGTextureRef DepthTexture = Depth.GetOrCreateTexture(GraphBuilder, TEXT("Copy_Depth"));
-
 	FRDGTextureRef FadeTexture = Fade.GetOrCreateTexture(GraphBuilder, TEXT("Copy_Fade"));
 
 	FRDGTextureRef OutputDepthTexture = RegisterExternalTexture(GraphBuilder, OutputDepthTextureRHI, TEXT("Output_Depth"));
-
 	FRDGTextureRef OutputFadeTexture = RegisterExternalTexture(GraphBuilder, OutputFadeTextureRHI, TEXT("Output_Fade"));
 
 	if (!DepthTexture || !FadeTexture || !OutputDepthTexture || !OutputFadeTexture)
@@ -1078,11 +945,9 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(
 	GraphBuilder.UseInternalAccessMode(OutputFadeTexture);
 
 	AddCopyTexturePass(GraphBuilder, DepthTexture, OutputDepthTexture);
-
 	AddCopyTexturePass(GraphBuilder, FadeTexture, OutputFadeTexture);
 
 	GraphBuilder.UseExternalAccessMode(OutputDepthTexture, ERHIAccess::SRVMask);
-
 	GraphBuilder.UseExternalAccessMode(OutputFadeTexture, ERHIAccess::SRVMask);
 }
 
@@ -1111,11 +976,7 @@ FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(float Half
 	const float ZScale = 1.0f / SafeMaxDepth;
 	const float ZOffset = 0.0f;
 
-	return FReversedZOrthoMatrix(
-		SafeHalfExtentX,
-		SafeHalfExtentY,
-		ZScale,
-		ZOffset);
+	return FReversedZOrthoMatrix(SafeHalfExtentX, SafeHalfExtentY, ZScale, ZOffset);
 }
 
 

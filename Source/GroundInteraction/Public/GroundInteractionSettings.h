@@ -3,9 +3,9 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "UObject\SoftObjectPtr.h"
 #include "Engine/DeveloperSettings.h"
 #include "GroundInteractionSettings.generated.h"
-
 
 /**
  * 
