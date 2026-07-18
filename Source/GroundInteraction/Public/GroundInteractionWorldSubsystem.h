@@ -7,8 +7,10 @@
 #include "GroundInteractionWorldSubsystem.generated.h"
 
 class FGroundInteractionSceneViewExtension;
+class USceneComponent;
 class UGroundInteractionRendererComponent;
 class UGroundInteractionTargetComponent;
+class UWaterInteractionRendererComponent;
 struct FStreamableHandle;
 
 UCLASS()
@@ -40,6 +42,11 @@ public:
 		return RendererComponent;
 	}
 
+	UWaterInteractionRendererComponent* GetWaterRendererComponent() const
+	{
+		return WaterRendererComponent;
+	}
+
 	UTextureRenderTarget2D* GetDepthRT() const
 	{
 		return DepthRT;
@@ -48,6 +55,11 @@ public:
 	UTextureRenderTarget2D* GetFadeRT() const
 	{
 		return FadeRT;
+	}
+
+	UTextureRenderTarget2D* GetWaterHeightRT() const
+	{
+		return WaterHeightRT;
 	}
 
 	UStaticMesh* GetCubeMesh() const
@@ -74,6 +86,11 @@ public:
 	{
 		return bAssetsReady;
 	}
+
+	bool AreWaterAssetsReady() const
+	{
+		return bWaterAssetsReady;
+	}
 	
 	const TSharedPtr<FGroundInteractionSceneViewExtension, ESPMode::ThreadSafe>& GetSceneViewExtension() const
 	{
@@ -84,7 +101,9 @@ private:
 	void BeginAsyncLoadAssets();
 	void OnAssetsLoaded();
 
-	void CreateOrUpdateRendererComponent();
+	void CreateOrUpdateRendererActor();
+	void CreateOrUpdateGroundRendererComponent();
+	void CreateOrUpdateWaterRendererComponent();
 	void DestroyRendererComponent();
 	
 	bool GetPlayerCameraLocation(FVector& OutCameraLocationWS) const;
@@ -103,6 +122,9 @@ private:
 	TObjectPtr<UTextureRenderTarget2D> FadeRT = nullptr;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UTextureRenderTarget2D> WaterHeightRT = nullptr;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CubeMesh = nullptr;
 
 	UPROPERTY(Transient)
@@ -118,9 +140,16 @@ private:
 	TObjectPtr<AActor> RendererActor = nullptr;
 
 	UPROPERTY(Transient)
+	TObjectPtr<USceneComponent> RendererRootComponent = nullptr;
+
+	UPROPERTY(Transient)
 	TObjectPtr<UGroundInteractionRendererComponent> RendererComponent = nullptr;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UWaterInteractionRendererComponent> WaterRendererComponent = nullptr;
+
 	bool bAssetsReady = false;
+	bool bWaterAssetsReady = false;
 
 	TSharedPtr<FStreamableHandle> AssetLoadHandle;
 	TSharedPtr<FGroundInteractionSceneViewExtension, ESPMode::ThreadSafe> SceneViewExtension;

@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
@@ -29,22 +29,21 @@ public:
 		UTextureRenderTarget2D* InFadeRT,
 		UMaterialParameterCollection* InMaterialParameterCollection);
 	
-	// 컴포넌트의 트랜스폼이 변경되었을 때 스냅된 위치를 프록시와 MPC 에 전달
+	// 컴포넌트 transform 변경 시 interaction 위치를 프록시와 MPC에 전달
 	virtual void SendRenderTransform_Concurrent() override;
 	
-	// 설정된 프로퍼티가 바뀔때마다 markrenderdynamicdatadirty 를 실행시킨다.
-	// renderdynamicdata concurrent 에서 바뀐 컴포넌트의 프로퍼티를 프록시에 반영
+	// 프로퍼티 변경까지 반영해야 하면 MarkRenderDynamicDataDirty를 호출한다.
+	// RenderDynamicData_Concurrent에서 바뀐 컴포넌트 프로퍼티를 프록시에 반영한다.
 	
-	// RT size 변경 프록시 전송, 프리미티브 컬링, UpdateDepthPass 실행 등을 담당함
+	// RT size 변경 전달, 프리미티브 컬렉션, UpdateDepthPass 실행을 담당
 	void UpdateGroundInteractionDepth_GameThread(FSceneViewFamily& InViewFamily);
 	
-	// 컴포넌트에서 MPC capture 정보를 갱신
-	void UpdateMPC(const FVector& InteractionOriginWS, const FVector& InteractionExtentWS) const;
+	// 컴포넌트에서 MPC interaction 정보를 갱신
+	void UpdateMPC(const FVector& BottomInteractionCenterWS, const FVector& InteractionExtentWS) const;
 	
 private:
 	void CreateRenderProxy();
 	void DestroyRenderProxy();
-
 	void ApplyOutputRenderTargets();
 
 	bool InitOutputRenderTarget(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const;
@@ -63,9 +62,8 @@ private:
 
 	FGroundInteractionRendererProxy* RenderProxy = nullptr;
 	FSceneInterface* RegisteredScene = nullptr;
-	
 	FIntPoint RenderTargetSize = FIntPoint::ZeroValue;
 	
-	// Depth Capture 주기 설정
+	// Depth update 주기 누적값
 	float DepthUpdateAccumulatorSeconds = 0.0f;
 };

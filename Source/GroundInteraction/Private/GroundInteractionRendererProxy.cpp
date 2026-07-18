@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GroundInteractionRendererProxy.h"
 #include "GroundInteractionCommon.h" 
@@ -22,7 +22,7 @@ static constexpr int32 DEPTH_FADE_CHANNEL_FADE = 1;
 static constexpr EPixelFormat DEPTH_FADE_PIXEL_FORMAT = PF_R16F;
 
 
-// Prev 렌더 타겟을 읽어서 지정한 픽셀만큼 이동시키는 셰이더
+// Previous 렌더 타겟을 읽어서 지정한 픽셀만큼 이동시키는 셰이더
 class FScrollingCS : public FGlobalShader
 {
 public:
@@ -61,7 +61,7 @@ public:
 };
 
 
-// Depth Fade 진행시키는 셰이더
+// Depth Fade를 진행시키는 셰이더
 class FFadeCS : public FGlobalShader
 {
 public:
@@ -93,7 +93,7 @@ public:
 };
 
 
-// 캡쳐한 Depth 결과로 업데이트하는 셰이더
+// depth pass 결과로 depth/fade texture를 업데이트하는 셰이더
 class FUpdateDepthCS : public FGlobalShader
 {
 public:
@@ -129,7 +129,7 @@ public:
 };
 
 
-// 씬 프록시를 캡쳐하는 커스텀 패스
+// interaction depth를 렌더링하는 custom render pass
 class FGroundInteractionDepthPass final : public FCustomRenderPassBase
 {
 public:
@@ -138,7 +138,7 @@ public:
 	FGroundInteractionDepthPass(
 		const FIntPoint& InRenderTargetSize,
 		FGroundInteractionRendererProxy* InOwnerProxy,
-		const FVector& InViewLocation,
+		const FVector& InBottomInteractionCenterWS,
 		float InMaxSceneDepth,
 		float InSceneDepthInvalidEpsilon)
 		: FCustomRenderPassBase(
@@ -148,7 +148,7 @@ public:
 			InRenderTargetSize)
 		, OwnerProxy(InOwnerProxy)
 		, RenderTargetSize(InRenderTargetSize)
-		, ViewLocation(InViewLocation)
+		, BottomInteractionCenterWS(InBottomInteractionCenterWS)
 		, MaxDepth(InMaxSceneDepth)
 		, SceneDepthInvalidEpsilon(InSceneDepthInvalidEpsilon)
 	{
@@ -222,14 +222,14 @@ public:
 		RenderTargetSize,
 		MaxDepth,
 		SceneDepthInvalidEpsilon,
-		ViewLocation,
+		BottomInteractionCenterWS,
 		Views[0]->GetFeatureLevel());
 	}
 
 private:
 	FGroundInteractionRendererProxy* OwnerProxy = nullptr;
 	FIntPoint RenderTargetSize = FIntPoint(1, 1);
-	FVector ViewLocation = FVector::ZeroVector;
+	FVector BottomInteractionCenterWS = FVector::ZeroVector;
 
 	float MaxDepth = 1.0f;
 	float SceneDepthInvalidEpsilon = 0.1f;
@@ -354,87 +354,6 @@ static void AddUpdateDepthPass(
 }
 
 
-bool FPlaneTexture::CheckPooledTarget(FRHICommandListImmediate& RHICmdList, const FIntPoint& InSize, EPixelFormat InFormat, const TCHAR* DebugName)
-{
-	const FIntPoint SafeSize(FMath::Max(InSize.X, 1), FMath::Max(InSize.Y, 1));
-
-	const bool bNeedsAllocateRenderTarget = !PooledTarget.IsValid() || AllocatedSize != SafeSize || AllocatedFormat != InFormat;
-
-	if (!bNeedsAllocateRenderTarget)
-	{
-		return false;
-	}
-
-	FPooledRenderTargetDesc Desc = FPooledRenderTargetDesc::Create2DDesc(
-		SafeSize,
-		InFormat,
-		FClearValueBinding::None,
-		TexCreate_None,
-		TexCreate_ShaderResource | TexCreate_UAV,
-		false);
-
-	Desc.DebugName = DebugName;
-
-	GRenderTargetPool.FindFreeElement(RHICmdList, Desc, PooledTarget, DebugName);
-
-	AllocatedSize = SafeSize;
-	AllocatedFormat = InFormat;
-
-	ResetTransientRefs();
-
-	return true;
-}
-
-FRDGTextureRef FPlaneTexture::GetOrCreateTexture(FRDGBuilder& GraphBuilder, const TCHAR* Name)
-{
-	if (!PooledTarget.IsValid())
-	{
-		return nullptr;
-	}
-
-	if (!TransientTextureRef)
-	{
-		TransientTextureRef = GraphBuilder.RegisterExternalTexture(PooledTarget, Name);
-	}
-
-	return TransientTextureRef;
-}
-
-FRDGTextureSRVRef FPlaneTexture::GetOrCreateSRV(FRDGBuilder& GraphBuilder, const TCHAR* Name)
-{
-	FRDGTextureRef TextureRef = GetOrCreateTexture(GraphBuilder, Name);
-
-	if (!TextureRef)
-	{
-		return nullptr;
-	}
-
-	if (!TransientSRVRef)
-	{
-		TransientSRVRef = GraphBuilder.CreateSRV(FRDGTextureSRVDesc::Create(TextureRef));
-	}
-
-	return TransientSRVRef;
-}
-
-FRDGTextureUAVRef FPlaneTexture::GetOrCreateUAV(FRDGBuilder& GraphBuilder, const TCHAR* Name)
-{
-	FRDGTextureRef TextureRef = GetOrCreateTexture(GraphBuilder, Name);
-
-	if (!TextureRef)
-	{
-		return nullptr;
-	}
-
-	if (!TransientUAVRef)
-	{
-		TransientUAVRef = GraphBuilder.CreateUAV(TextureRef);
-	}
-
-	return TransientUAVRef;
-}
-
-
 FGroundInteractionRendererProxy::FGroundInteractionRendererProxy(
 	FTextureReferenceRHIRef InDepthTextureReferenceRHI,
 	FTextureReferenceRHIRef InFadeTextureReferenceRHI,
@@ -496,10 +415,10 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 		return;
 	}
 	
-	// 새 RDG graph 진입 시 이전 graph의 transient RDG ref를 비운다.
+	// 새 RDG graph 진입 전 이전 graph의 transient RDG ref를 비운다.
 	ResetDepthFadeTransientRefs();
 	
-	// 렌더 타겟 사이즈가 바뀌었으면 이전 상태를 나타내는 변수들을 초기화한다.
+	// 렌더 타겟 사이즈가 바뀌었으면 이전 상태를 버리는 변수들을 초기화한다.
 	if (bRenderTargetChanged)
 	{
 		bRenderTargetChanged = false;
@@ -512,22 +431,22 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 		bClearDepthFadeTextures = true;
 	}
 	
-	// 렌더 타겟 크기가 바뀌었으면 DepthFadeTextures 가 초기화된다.
+	// 렌더 타겟 크기가 바뀌었으면 DepthFadeTextures가 초기화된다.
 	CheckDepthFadeTextures(GraphBuilder, RenderTargetSize, bClearDepthFadeTextures);
 
 	bClearDepthFadeTextures = false;
 
 	// 이번 Render 호출에서 사용할 delta time.
-	// Fade Pass 실행 여부를 나타내는 accumulator 누적에 사용한다.
+	// Fade Pass 실행 여부를 판단하는 accumulator 누적에 사용한다.
 	const float DeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0f);
 
-	// 현재 프레임의 스냅된 센터 위치
-	const FVector CurrentOriginWS = GetCaptureOriginWS();
+	// 현재 프레임의 bottom interaction center 위치
+	const FVector CurrentBottomInteractionCenterWS = GetBottomInteractionCenterWS();
 
-	// 이전 프레임의 스냅된 센터 위치
-	const FVector PreviousOriginWS = bHasPreviousCapture ? GetPreviousCaptureOriginWS() : CurrentOriginWS;
+	// 이전 프레임의 bottom interaction center 위치
+	const FVector PreviousBottomInteractionCenterWS = bHasPreviousCapture ? GetPreviousBottomInteractionCenterWS() : CurrentBottomInteractionCenterWS;
 	
-	// 이전 프레임 센터 위치와 현재 프레임 센터 위치를 비교해 몇 픽셀만큼 움직여야 하는지 Offset 을 저장하는 변수
+	// 이전 프레임 중심 위치와 현재 프레임 중심 위치를 비교해 몇 픽셀만큼 이동했는지 저장한다.
 	FIntPoint ScrollPixels = FIntPoint::ZeroValue;
 	
 	if (bHasPreviousCapture)
@@ -538,7 +457,6 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 	}
 	
 	// ---- Scrolling Pass 실행 ----
-	// 이전 프레임 결과가 있고, ScrollPixels 값이 0 이 아니면 중심 위치를 이동시켜야 하므로 Scrolling Pass 를 실행한다.
 	if (bHasPreviousCapture && ScrollPixels != FIntPoint::ZeroValue)
 	{
 		FPlaneTexture& PreviousDepth = DepthFadeTextures[GetPrevDepthFadeTextureId()][DEPTH_FADE_CHANNEL_DEPTH];
@@ -577,21 +495,21 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 				CurrentFadeUAV,
 				RenderTargetSize,
 			ScrollPixels,
-			PreviousOriginWS.Z,
-			CurrentOriginWS.Z,
+			PreviousBottomInteractionCenterWS.Z,
+			CurrentBottomInteractionCenterWS.Z,
 				GetMaxSceneDepth(),
 				GetSceneDepthInvalidEpsilon(),
 				true);
 
 			AdvanceDepthFadeTextureId();
 
-			// 스냅된 센터 위치 변경
+			// bottom interaction center 위치 변경
 			PreviousSnappedLocation = CurrentSnappedLocation;
 		}
 	}
 
 	// ---- Fade Pass 실행 ----
-	// FadeUpdateAccumulatorSeconds 가 FadeUpdateIntervalSeconds 보다 커졌을 때 실행된다.
+	// FadeUpdateAccumulatorSeconds가 FadeUpdateIntervalSeconds보다 커졌을 때 실행한다.
 	FadeUpdateAccumulatorSeconds += DeltaTimeSeconds;
 
 	float FadeDeltaTimeSeconds = 0.0f;
@@ -635,7 +553,7 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 }
 
 
-void FGroundInteractionRendererProxy::QueueGroundInteractionDepthPass_GameThread(FSceneViewFamily& InViewFamily, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& ViewLocation, const FIntPoint& DepthRenderTargetSize)
+void FGroundInteractionRendererProxy::QueueGroundInteractionDepthPass_GameThread(FSceneViewFamily& InViewFamily, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& BottomInteractionCenterWS, const FIntPoint& DepthRenderTargetSize)
 {
 	check(IsInGameThread());
 
@@ -649,12 +567,12 @@ void FGroundInteractionRendererProxy::QueueGroundInteractionDepthPass_GameThread
 	const float HalfExtentX = FMath::Max(InteractionExtentWS.X, 1.0f);
 	const float HalfExtentY = FMath::Max(InteractionExtentWS.Y, 1.0f);
 
-	const FVector ViewLookAt = ViewLocation + FVector(0.0f, 0.0f, 1.0f);
+	const FVector ViewLookAt = BottomInteractionCenterWS + FVector(0.0f, 0.0f, 1.0f);
 
 	FSceneInterface::FCustomRenderPassRendererInput PassInput;
-	PassInput.ViewLocation = ViewLocation;
+	PassInput.ViewLocation = BottomInteractionCenterWS;
 
-	PassInput.ViewRotationMatrix = FLookAtMatrix(ViewLocation, ViewLookAt, FVector(0.0f, 1.0f, 0.0f));
+	PassInput.ViewRotationMatrix = FLookAtMatrix(BottomInteractionCenterWS, ViewLookAt, FVector(0.0f, 1.0f, 0.0f));
 
 	PassInput.ViewRotationMatrix = PassInput.ViewRotationMatrix.RemoveTranslation();
 
@@ -679,7 +597,7 @@ void FGroundInteractionRendererProxy::QueueGroundInteractionDepthPass_GameThread
 	PassInput.EngineShowFlags.SetDynamicShadows(false);
 	PassInput.EngineShowFlags.SetTranslucency(false);
 
-	PassInput.CustomRenderPass = new FGroundInteractionDepthPass(SafeRenderTargetSize, this, ViewLocation, MaxDepth, GetSceneDepthInvalidEpsilon());
+	PassInput.CustomRenderPass = new FGroundInteractionDepthPass(SafeRenderTargetSize, this, BottomInteractionCenterWS, MaxDepth, GetSceneDepthInvalidEpsilon());
 	
 	InViewFamily.Scene->AddCustomRenderPass(&InViewFamily, PassInput);
 }
@@ -749,7 +667,7 @@ void FGroundInteractionRendererProxy::UpdateGroundInteractionDepth(
 	const FIntPoint& PassRenderTargetSize,
 	float PassMaxSceneDepth,
 	float PassSceneDepthInvalidEpsilon,
-	const FVector& PassViewLocation,
+	const FVector& PassBottomInteractionCenterWS,
 	ERHIFeatureLevel::Type FeatureLevel)
 {
 	check(IsInRenderingThread());
@@ -759,8 +677,8 @@ void FGroundInteractionRendererProxy::UpdateGroundInteractionDepth(
 		return;
 	}
 
-	// CustomRenderPass 의 OnPostRender 는 Render() 와 다른 GraphBuilder 로 들어올 수 있으므로
-	// 이전 RDG graph 에서 만들어진 transient ref 를 비운다.
+	// CustomRenderPass의 OnPostRender는 Render()와 다른 GraphBuilder로 들어올 수 있으므로
+	// 이전 RDG graph에서 만들어진 transient ref를 비운다.
 	ResetDepthFadeTransientRefs();
 	
 	CheckDepthFadeTextures(GraphBuilder, PassRenderTargetSize, bClearDepthFadeTextures);
@@ -785,17 +703,15 @@ void FGroundInteractionRendererProxy::UpdateGroundInteractionDepth(
 	
 	const FIntPoint SafeRenderTargetSize(FMath::Max(PassRenderTargetSize.X, 1), FMath::Max(PassRenderTargetSize.Y, 1));
 
-	const FVector CurrentViewLocation = GetCaptureOriginWS();
+	const FVector CurrentBottomInteractionCenterWS = GetBottomInteractionCenterWS();
 
-	const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(InteractionExtentWS, SafeRenderTargetSize); // [변경] 공통 함수 사용
+	const FVector2D UnitsPerPixel = GroundInteractionCommon::GetUnitsPerPixel(InteractionExtentWS, SafeRenderTargetSize);
 
-	// PassViewLocation 와 CurrentViewLocation 의 픽셀 오프셋 차이 계산
 	const FIntPoint ScrollPixels(
-		FMath::RoundToInt((CurrentViewLocation.X - PassViewLocation.X) / UnitsPerPixel.X),
-		-FMath::RoundToInt((CurrentViewLocation.Y - PassViewLocation.Y) / UnitsPerPixel.Y));
+		FMath::RoundToInt((CurrentBottomInteractionCenterWS.X - PassBottomInteractionCenterWS.X) / UnitsPerPixel.X),
+		-FMath::RoundToInt((CurrentBottomInteractionCenterWS.Y - PassBottomInteractionCenterWS.Y) / UnitsPerPixel.Y));
 	
-	// PassViewLocation 와 CurrentViewLocation 의 Z 위치 차이 계산
-	const float DepthOffsetZ = static_cast<float>(PassViewLocation.Z - CurrentViewLocation.Z);
+	const float DepthOffsetZ = static_cast<float>(PassBottomInteractionCenterWS.Z - CurrentBottomInteractionCenterWS.Z);
 	
 	GraphBuilder.UseInternalAccessMode(DepthTexture);
 	GraphBuilder.UseInternalAccessMode(FadeTexture);
@@ -815,7 +731,7 @@ void FGroundInteractionRendererProxy::UpdateGroundInteractionDepth(
 	GraphBuilder.SetTextureAccessFinal(DepthTexture, ERHIAccess::SRVMask);
 	GraphBuilder.SetTextureAccessFinal(FadeTexture, ERHIAccess::SRVMask);
 
-	// 첫 capture 성공 이후부터 scrolling history 를 사용할 수 있게 한다.
+	// 첫 depth update 성공 이후부터 scrolling history를 사용할 수 있게 한다.
 	if (!bHasPreviousCapture)
 	{
 		bHasPreviousCapture = true;
@@ -861,8 +777,7 @@ void FGroundInteractionRendererProxy::CheckDepthFadeTextures(FRDGBuilder& GraphB
 		return;
 	}
 
-	// 새로 할당됐거나 clear 요청이 있으면,
-	// 같은 GraphBuilder 안에서 다시 등록하기 전에 transient ref를 비운다.
+	// 새로 할당했거나 clear 요청이 있으면 같은 GraphBuilder 안에서 다시 등록하기 전에 transient ref를 비운다.
 	ResetDepthFadeTransientRefs();
 
 	for (int32 TextureId = 0; TextureId < 2; ++TextureId)
@@ -978,3 +893,5 @@ FMatrix FGroundInteractionRendererProxy::BuildBottomUpOrthoProjection(float Half
 
 	return FReversedZOrthoMatrix(SafeHalfExtentX, SafeHalfExtentY, ZScale, ZOffset);
 }
+
+

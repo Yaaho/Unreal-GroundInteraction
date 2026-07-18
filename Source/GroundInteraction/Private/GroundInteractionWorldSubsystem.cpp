@@ -1,11 +1,13 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GroundInteractionWorldSubsystem.h"
 #include "GroundInteractionSceneViewExtension.h"
 #include "GroundInteractionSettings.h"
 #include "GroundInteractionRendererComponent.h"
 #include "GroundInteractionTargetComponent.h"
+#include "WaterInteractionRendererComponent.h"
 
+#include "Components/SceneComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Level.h"
 #include "Components/PrimitiveComponent.h"
@@ -16,10 +18,12 @@
 
 namespace GroundInteractionAssetPaths
 {
-	// 플러그인에서 사용하는 기본 에셋들
+	// 플러그인에서 사용하는 기본 에셋
 	static const FSoftObjectPath DepthRT(TEXT("/GroundInteraction/RT/RT_GroundInteractionDepth.RT_GroundInteractionDepth"));
 	
 	static const FSoftObjectPath FadeRT(TEXT("/GroundInteraction/RT/RT_GroundInteractionFade.RT_GroundInteractionFade"));
+
+	static const FSoftObjectPath WaterHeightRT(TEXT("/GroundInteraction/RT/RT_WaterinteractionHeight.RT_WaterinteractionHeight"));
 	
 	static const FSoftObjectPath CubeMesh(TEXT("/GroundInteraction/Mesh/Cube.Cube"));
 	
@@ -53,9 +57,11 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 	InteractionPrimitives.Empty();
 
 	bAssetsReady = false;
+	bWaterAssetsReady = false;
 
 	DepthRT = nullptr;
 	FadeRT = nullptr;
+	WaterHeightRT = nullptr;
 	CubeMesh = nullptr;
 	SphereMesh = nullptr;
 	CapsuleMesh = nullptr;
@@ -92,7 +98,7 @@ void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
 		return;
 	}
 	
-	// 렌더러 액터 위치를 플레이어 위치로 설정
+	// 렌더 액터 위치를 플레이어 위치로 설정
 	RendererActor->SetActorLocation(RawCameraLocationWS);
 }
 
@@ -162,13 +168,18 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	}
 
 	TArray<FSoftObjectPath> AssetsToLoad;
-	AssetsToLoad.Reserve(6);
+	AssetsToLoad.Reserve(7);
 
 	AssetsToLoad.Add(GroundInteractionAssetPaths::DepthRT);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::FadeRT);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::CubeMesh);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::SphereMesh);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::CapsuleMesh);
+
+	if (Settings->bEnableWaterInteraction)
+	{
+		AssetsToLoad.Add(GroundInteractionAssetPaths::WaterHeightRT);
+	}
 
 	if (!Settings->MaterialParameterCollection.IsNull())
 	{
@@ -196,6 +207,16 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	if (!FadeRT)
 	{
 		FadeRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::FadeRT.TryLoad());
+	}
+
+	WaterHeightRT = nullptr;
+	if (Settings->bEnableWaterInteraction)
+	{
+		WaterHeightRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::WaterHeightRT.ResolveObject());
+		if (!WaterHeightRT)
+		{
+			WaterHeightRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::WaterHeightRT.TryLoad());
+		}
 	}
 
 	CubeMesh = Cast<UStaticMesh>(GroundInteractionAssetPaths::CubeMesh.ResolveObject());
@@ -234,12 +255,16 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 		CapsuleMesh != nullptr &&
 		MaterialParameterCollection != nullptr;
 
+	bWaterAssetsReady = Settings->bEnableWaterInteraction && WaterHeightRT != nullptr;
+
 	if (!bAssetsReady)
 	{
 		return;
 	}
 
-	CreateOrUpdateRendererComponent();
+	CreateOrUpdateRendererActor();
+	CreateOrUpdateGroundRendererComponent();
+	CreateOrUpdateWaterRendererComponent();
 
 	for (const TWeakObjectPtr<UGroundInteractionTargetComponent>& TargetWeak : RegisteredTargets)
 	{
@@ -250,7 +275,7 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	}
 }
 
-void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
+void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererActor()
 {
 	UWorld* World = GetWorld();
 	if (!World || !bAssetsReady)
@@ -279,11 +304,32 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
 		return;
 	}
 
+	if (!RendererRootComponent)
+	{
+		RendererRootComponent = NewObject<USceneComponent>(RendererActor, TEXT("InteractionRendererRoot"), RF_Transient);
+
+		RendererActor->SetRootComponent(RendererRootComponent);
+		RendererActor->AddInstanceComponent(RendererRootComponent);
+	}
+
+	if (!RendererRootComponent->IsRegistered())
+	{
+		RendererRootComponent->RegisterComponent();
+	}
+}
+
+void UGroundInteractionWorldSubsystem::CreateOrUpdateGroundRendererComponent()
+{
+	if (!RendererActor || !RendererRootComponent || !bAssetsReady)
+	{
+		return;
+	}
+
 	if (!RendererComponent)
 	{
 		RendererComponent = NewObject<UGroundInteractionRendererComponent>(RendererActor, TEXT("GroundInteractionRendererComponent"), RF_Transient);
 
-		RendererActor->SetRootComponent(RendererComponent);
+		RendererComponent->SetupAttachment(RendererRootComponent);
 		
 		RendererActor->AddInstanceComponent(RendererComponent);
 	}
@@ -296,12 +342,60 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererComponent()
 	RendererComponent->InitializeRenderer(this, DepthRT, FadeRT, MaterialParameterCollection);
 }
 
+void UGroundInteractionWorldSubsystem::CreateOrUpdateWaterRendererComponent()
+{
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+	if (!Settings || !Settings->bEnableWaterInteraction || !bWaterAssetsReady)
+	{
+		if (WaterRendererComponent)
+		{
+			WaterRendererComponent->DestroyComponent();
+			WaterRendererComponent = nullptr;
+		}
+
+		return;
+	}
+
+	if (!RendererActor || !RendererRootComponent)
+	{
+		return;
+	}
+
+	if (!WaterRendererComponent)
+	{
+		WaterRendererComponent = NewObject<UWaterInteractionRendererComponent>(RendererActor, TEXT("WaterInteractionRendererComponent"), RF_Transient);
+
+		WaterRendererComponent->SetupAttachment(RendererRootComponent);
+
+		RendererActor->AddInstanceComponent(WaterRendererComponent);
+	}
+
+	if (!WaterRendererComponent->IsRegistered())
+	{
+		WaterRendererComponent->RegisterComponent();
+	}
+
+	WaterRendererComponent->InitializeRenderer(this, WaterHeightRT, MaterialParameterCollection);
+}
+
 void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
 {
+	if (WaterRendererComponent)
+	{
+		WaterRendererComponent->DestroyComponent();
+		WaterRendererComponent = nullptr;
+	}
+
 	if (RendererComponent)
 	{
 		RendererComponent->DestroyComponent();
 		RendererComponent = nullptr;
+	}
+
+	if (RendererRootComponent)
+	{
+		RendererRootComponent->DestroyComponent();
+		RendererRootComponent = nullptr;
 	}
 
 	if (RendererActor)

@@ -1,4 +1,4 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GroundInteractionRendererComponent.h"
 #include "GroundInteractionWorldSubsystem.h"
@@ -32,6 +32,7 @@ void UGroundInteractionRendererComponent::OnUnregister()
 
 	Super::OnUnregister();
 }
+
 void UGroundInteractionRendererComponent::OnComponentDestroyed(bool bDestroyingHierarchy)
 {
 	DestroyRenderProxy();
@@ -84,10 +85,8 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 	}
 
 	const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->GroundInteractionWorldExtent);
-
 	const FVector RawCenterWS = GetComponentLocation();
-
-	const FVector SnappedCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCenterWS, InteractionExtentWS, SafeRenderTargetSize, Settings->GroundInteractionLocationSnapCellCount);
+	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(RawCenterWS, InteractionExtentWS, SafeRenderTargetSize, Settings->GroundInteractionLocationSnapCellCount);
 
 	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
@@ -99,14 +98,14 @@ void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 				return;
 			}
 
-			// 프록시에 Snapped Center 위치 설정
+			// 프록시에 snapped center 위치 설정
 			ProxyForCommand->CurrentSnappedLocation = SnappedCenterWS;
 		});
 
-	const FVector InteractionOriginWS = GroundInteractionCommon::GetCaptureOriginWS(SnappedCenterWS, InteractionExtentWS);
+	const FVector BottomInteractionCenterWS = GroundInteractionCommon::GetBottomInteractionCenterWS(SnappedCenterWS, InteractionExtentWS);
 	
-	// MPC 에 Snapped Capture Origin 위치 설정
-	UpdateMPC(InteractionOriginWS, InteractionExtentWS);
+	// MPC에 bottom interaction center 위치 설정
+	UpdateMPC(BottomInteractionCenterWS, InteractionExtentWS);
 }
 
 
@@ -131,14 +130,8 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 		}
 	}
 
-	if (!Subsystem || !Subsystem->AreAssetsReady())
-	{
-		return;
-	}
-
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
-
-	if (!Settings)
+	if (!Settings || !Subsystem || !Subsystem->AreAssetsReady())
 	{
 		return;
 	}
@@ -154,7 +147,7 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 
 		bRenderTargetChanged = true;
 
-		// RT size 변경 시 capture accumulator 초기화
+		// RT size 변경 시 depth update accumulator 초기화
 		DepthUpdateAccumulatorSeconds = 0.0f;
 
 		SendRenderTransform_Concurrent();
@@ -203,7 +196,7 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 
 	const FVector RawCenterWS = GetComponentLocation();
 
-	const FVector SnappedCenterWS = GroundInteractionCommon::SnapCaptureCenterWS(RawCenterWS, InteractionExtentWS, RenderTargetSize, Settings->GroundInteractionLocationSnapCellCount);
+	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(RawCenterWS, InteractionExtentWS, RenderTargetSize, Settings->GroundInteractionLocationSnapCellCount);
 	
 	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
 
@@ -226,13 +219,13 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 		return;
 	}
 
-	const FVector ViewLocation = GroundInteractionCommon::GetCaptureOriginWS(SnappedCenterWS, InteractionExtentWS);
+	const FVector BottomInteractionCenterWS = GroundInteractionCommon::GetBottomInteractionCenterWS(SnappedCenterWS, InteractionExtentWS);
 
-	RenderProxy->QueueGroundInteractionDepthPass_GameThread(InViewFamily, ShowOnlyPrimitives, ViewLocation, RenderTargetSize);
+	RenderProxy->QueueGroundInteractionDepthPass_GameThread(InViewFamily, ShowOnlyPrimitives, BottomInteractionCenterWS, RenderTargetSize);
 }
 
 
-void UGroundInteractionRendererComponent::UpdateMPC(const FVector& InteractionOriginWS, const FVector& InteractionExtentWS) const
+void UGroundInteractionRendererComponent::UpdateMPC(const FVector& BottomInteractionCenterWS, const FVector& InteractionExtentWS) const
 {
 	if (!GetWorld() || !MaterialParameterCollection)
 	{
@@ -244,9 +237,9 @@ void UGroundInteractionRendererComponent::UpdateMPC(const FVector& InteractionOr
 		MaterialParameterCollection,
 		FName(TEXT("GI_OriginWS")),
 		FLinearColor(
-			InteractionOriginWS.X,
-			InteractionOriginWS.Y,
-			InteractionOriginWS.Z,
+			BottomInteractionCenterWS.X,
+			BottomInteractionCenterWS.Y,
+			BottomInteractionCenterWS.Z,
 			0.0f));
 
 	UKismetMaterialLibrary::SetVectorParameterValue(
@@ -314,25 +307,29 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 	}
 
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+	if (!Settings)
+	{
+		return;
+	}
 
-	RenderTargetSize = Settings ? Settings->GetGroundInteractionRenderTargetSize() : FIntPoint(512, 512);
+	RenderTargetSize = Settings->GetGroundInteractionRenderTargetSize();
 
 	ApplyOutputRenderTargets();
 
-	const FVector CaptureExtent = Settings ? GroundInteractionCommon::MakeSafeInteractionExtent(Settings->GroundInteractionWorldExtent) : FVector(1000.0f, 1000.0f, 1000.0f);
+	const FVector InteractionExtent = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->GroundInteractionWorldExtent);
 
-	const float FadeRiseSpeed = Settings ? Settings->FadeRiseSpeed : 150.0f;
+	const float FadeRiseSpeed = Settings->FadeRiseSpeed;
 
-	const float FadeMaxHeight = Settings ? Settings->FadeMaxHeight : 120.0f;
+	const float FadeMaxHeight = Settings->FadeMaxHeight;
 
-	const float FadeUpdateIntervalSeconds = Settings ? Settings->GetDepthFadeUpdateIntervalSeconds() : 1.0f / 60.0f;
+	const float FadeUpdateIntervalSeconds = Settings->GetDepthFadeUpdateIntervalSeconds();
 
 	const FIntVector NumCell(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1), 1);
 
 	const FVector CellSpacing(
-		FMath::Max(CaptureExtent.X, 1.0f) * 2.0f / float(NumCell.X),
-		FMath::Max(CaptureExtent.Y, 1.0f) * 2.0f / float(NumCell.Y),
-		FMath::Max(CaptureExtent.Z, 1.0f) * 2.0f / float(FMath::Max(NumCell.Z, 1)));
+		FMath::Max(InteractionExtent.X, 1.0f) * 2.0f / float(NumCell.X),
+		FMath::Max(InteractionExtent.Y, 1.0f) * 2.0f / float(NumCell.Y),
+		FMath::Max(InteractionExtent.Z, 1.0f) * 2.0f / float(FMath::Max(NumCell.Z, 1)));
 
 	RegisteredScene = World->Scene;
 
@@ -341,13 +338,12 @@ void UGroundInteractionRendererComponent::CreateRenderProxy()
 		FadeRT->TextureReference.TextureReferenceRHI,
 		NumCell,
 		CellSpacing,
-		CaptureExtent,
+		InteractionExtent,
 		FadeRiseSpeed,
 		FadeMaxHeight,
 		FadeUpdateIntervalSeconds);
 
 	FGroundInteractionRendererProxy* ProxyForCommand = RenderProxy;
-
 	FSceneInterface* SceneForCommand = RegisteredScene;
 	
 	ENQUEUE_RENDER_COMMAND(GroundInteractionRegisterRendererProxy)(
@@ -377,7 +373,6 @@ void UGroundInteractionRendererComponent::DestroyRenderProxy()
 			[SceneForCommand, ProxyForCommand](FRHICommandListImmediate& RHICmdList)
 			{
 				ProxyForCommand->Release();
-				
 				FGroundInteractionRendererProxy::UnregisterProxy(SceneForCommand, ProxyForCommand);
 			});
 	}
@@ -435,3 +430,5 @@ bool UGroundInteractionRendererComponent::InitOutputRenderTarget(UTextureRenderT
 
 	return true;
 }
+
+

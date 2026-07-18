@@ -1,10 +1,10 @@
-// Fill out your copyright notice in the Description page of Project Settings.
+﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #pragma once
 
 #include "CoreMinimal.h"
 
-// GroundInteraction의 월드 좌표 스냅 등의 계산을 이곳에 선언
+// GroundInteraction 렌더 좌표 계산용 공통 선언
 namespace GroundInteractionCommon
 {
 	FORCEINLINE const FName& GetDepthPassTypeName()
@@ -24,18 +24,18 @@ namespace GroundInteractionCommon
 		return FVector(FMath::Max(InExtentWS.X, 1.0), FMath::Max(InExtentWS.Y, 1.0), FMath::Max(InExtentWS.Z, 1.0));
 	}
 
-	FORCEINLINE FVector2D GetUnitsPerPixel(const FVector& CaptureExtentWS, const FIntPoint& RenderTargetSize)
+	FORCEINLINE FVector2D GetUnitsPerPixel(const FVector& InteractionExtentWS, const FIntPoint& RenderTargetSize)
 	{
-		const FVector SafeExtentWS = MakeSafeInteractionExtent(CaptureExtentWS);
+		const FVector SafeExtentWS = MakeSafeInteractionExtent(InteractionExtentWS);
 		const FIntPoint SafeSize = MakeSafeRenderTargetSize(RenderTargetSize);
 
 		return FVector2D(SafeExtentWS.X * 2.0 / static_cast<double>(SafeSize.X), SafeExtentWS.Y * 2.0 / static_cast<double>(SafeSize.Y));
 	}
 
-	// 모든 capture center는 이 함수로만 만든다.
-	FORCEINLINE FVector SnapCaptureCenterWS(const FVector& RawCenterWS, const FVector& CaptureExtentWS, const FIntPoint& RenderTargetSize, int32 LocationSnapCellCount)
+	// 모든 interaction center는 이 함수로만 만든다.
+	FORCEINLINE FVector SnapInteractionCenterWS(const FVector& RawCenterWS, const FVector& InteractionExtentWS, const FIntPoint& RenderTargetSize, int32 LocationSnapCellCount)
 	{
-		const FVector SafeExtentWS = MakeSafeInteractionExtent(CaptureExtentWS);
+		const FVector SafeExtentWS = MakeSafeInteractionExtent(InteractionExtentWS);
 		const FIntPoint SafeSize = MakeSafeRenderTargetSize(RenderTargetSize);
 		const FVector2D UnitsPerPixel = GetUnitsPerPixel(SafeExtentWS, SafeSize);
 		const int32 SafeLocationSnapCellCount = FMath::Max(LocationSnapCellCount, 1);
@@ -51,23 +51,23 @@ namespace GroundInteractionCommon
 		return FVector(SnappedX, SnappedY, SnappedZ);
 	}
 
-	FORCEINLINE FVector GetCaptureOriginWS(const FVector& CaptureCenterWS, const FVector& CaptureExtentWS)
+	FORCEINLINE FVector GetBottomInteractionCenterWS(const FVector& InteractionCenterWS, const FVector& InteractionExtentWS)
 	{
-		const FVector SafeExtentWS = MakeSafeInteractionExtent(CaptureExtentWS);
+		const FVector SafeExtentWS = MakeSafeInteractionExtent(InteractionExtentWS);
 
-		return FVector(CaptureCenterWS.X, CaptureCenterWS.Y, CaptureCenterWS.Z - SafeExtentWS.Z);
+		return FVector(InteractionCenterWS.X, InteractionCenterWS.Y, InteractionCenterWS.Z - SafeExtentWS.Z);
 	}
 
-	FORCEINLINE float GetMaxSceneDepth(const FVector& CaptureExtentWS)
+	FORCEINLINE float GetMaxSceneDepth(const FVector& InteractionExtentWS)
 	{
-		const FVector SafeExtentWS = MakeSafeInteractionExtent(CaptureExtentWS);
+		const FVector SafeExtentWS = MakeSafeInteractionExtent(InteractionExtentWS);
 
 		return FMath::Max(SafeExtentWS.Z * 2.0f, 1.0f);
 	}
 
-	FORCEINLINE float GetSceneDepthInvalidEpsilon(const FVector& CaptureExtentWS)
+	FORCEINLINE float GetSceneDepthInvalidEpsilon(const FVector& InteractionExtentWS)
 	{
-		const float MaxDepth = GetMaxSceneDepth(CaptureExtentWS);
+		const float MaxDepth = GetMaxSceneDepth(InteractionExtentWS);
 
 		return FMath::Clamp(MaxDepth * 0.0005f, 0.1f, 2.0f);
 	}

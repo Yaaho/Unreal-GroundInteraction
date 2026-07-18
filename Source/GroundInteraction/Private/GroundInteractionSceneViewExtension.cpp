@@ -4,6 +4,7 @@
 #include "GroundInteractionWorldSubsystem.h"
 #include "GroundInteractionRendererProxy.h"
 #include "GroundInteractionRendererComponent.h"
+#include "WaterInteractionRendererProxy.h"
 
 #include "Runtime\Engine\Public\SceneView.h"
 
@@ -87,6 +88,18 @@ void FGroundInteractionSceneViewExtension::PreRenderViewFamily_RenderThread(FRDG
 	TArray<FGroundInteractionRendererProxy*> Proxies = FGroundInteractionRendererProxy::GetProxies(InViewFamily.Scene);
 
 	for (FGroundInteractionRendererProxy* Proxy : Proxies)
+	{
+		if (!Proxy)
+		{
+			continue;
+		}
+
+		Proxy->Render(GraphBuilder, InViewFamily);
+	}
+
+	TArray<FWaterInteractionRendererProxy*> WaterProxies = FWaterInteractionRendererProxy::GetProxies(InViewFamily.Scene);
+
+	for (FWaterInteractionRendererProxy* Proxy : WaterProxies)
 	{
 		if (!Proxy)
 		{
