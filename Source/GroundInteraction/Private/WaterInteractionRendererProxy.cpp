@@ -10,9 +10,11 @@
 
 static TMap<FSceneInterface*, TArray<FWaterInteractionRendererProxy*>> WaterProxiesByScene;
 
-static constexpr int32 GROUP_SIZE_X = 8;
-static constexpr int32 GROUP_SIZE_Y = 8;
-static constexpr int32 GROUP_SIZE_Z = 1;
+// Keep these names unique because Unreal's Unity build can concatenate this
+// source file with GroundInteractionRendererProxy.cpp into one translation unit.
+static constexpr int32 WATER_GROUP_SIZE_X = 8;
+static constexpr int32 WATER_GROUP_SIZE_Y = 8;
+static constexpr int32 WATER_GROUP_SIZE_Z = 1;
 
 static constexpr EPixelFormat WATER_HEIGHT_PIXEL_FORMAT = PF_R16F;
 
@@ -30,9 +32,9 @@ public:
 	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), WATER_GROUP_SIZE_X);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), WATER_GROUP_SIZE_Y);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), WATER_GROUP_SIZE_Z);
 	}
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
@@ -58,9 +60,9 @@ public:
 	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), WATER_GROUP_SIZE_X);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), WATER_GROUP_SIZE_Y);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), WATER_GROUP_SIZE_Z);
 	}
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
@@ -194,7 +196,7 @@ static void AddWaterScrollingPass(
 	PassParameters->OutputHeightTexture = OutputHeightTextureUAV;
 
 	TShaderMapRef<FWaterScrollingCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
-	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(FIntVector(NumCells.X, NumCells.Y, 1), FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
+	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(FIntVector(NumCells.X, NumCells.Y, 1), FIntVector(WATER_GROUP_SIZE_X, WATER_GROUP_SIZE_Y, WATER_GROUP_SIZE_Z));
 
 	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.WaterScrolling"), ComputeShader, PassParameters, DispatchCount);
 }
@@ -224,7 +226,7 @@ static void AddWaterImpulsePass(
 	PassParameters->HeightTexture = HeightTextureUAV;
 
 	TShaderMapRef<FApplyWaterImpulseCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
-	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(FIntVector(NumCells.X, NumCells.Y, 1), FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
+	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(FIntVector(NumCells.X, NumCells.Y, 1), FIntVector(WATER_GROUP_SIZE_X, WATER_GROUP_SIZE_Y, WATER_GROUP_SIZE_Z));
 
 	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.ApplyWaterImpulse"), ComputeShader, PassParameters, DispatchCount);
 }

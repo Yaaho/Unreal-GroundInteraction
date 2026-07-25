@@ -12,9 +12,9 @@
 
 static TMap<FSceneInterface*, TArray<FGroundInteractionRendererProxy*>> ProxiesByScene;
 
-static constexpr int32 GROUP_SIZE_X = 8;
-static constexpr int32 GROUP_SIZE_Y = 8;
-static constexpr int32 GROUP_SIZE_Z = 1;
+static constexpr int32 GROUND_GROUP_SIZE_X = 8;
+static constexpr int32 GROUND_GROUP_SIZE_Y = 8;
+static constexpr int32 GROUND_GROUP_SIZE_Z = 1;
 
 static constexpr int32 DEPTH_FADE_CHANNEL_DEPTH = 0;
 static constexpr int32 DEPTH_FADE_CHANNEL_FADE = 1;
@@ -38,9 +38,9 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUND_GROUP_SIZE_X);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUND_GROUP_SIZE_Y);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUND_GROUP_SIZE_Z);
 	}
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
@@ -75,9 +75,9 @@ public:
 	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUND_GROUP_SIZE_X);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUND_GROUP_SIZE_Y);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUND_GROUP_SIZE_Z);
 	}
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
@@ -108,9 +108,9 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUP_SIZE_X);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUP_SIZE_Y);
-		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUP_SIZE_Z);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_X"), GROUND_GROUP_SIZE_X);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Y"), GROUND_GROUP_SIZE_Y);
+		OutEnvironment.SetDefine(TEXT("GI_THREADGROUP_SIZE_Z"), GROUND_GROUP_SIZE_Z);
 	}
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
@@ -279,7 +279,7 @@ static void AddGroundScrollingPass(
 
 	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
 			FIntVector(NumCells.X, NumCells.Y, 1),
-			FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
+			FIntVector(GROUND_GROUP_SIZE_X, GROUND_GROUP_SIZE_Y, GROUND_GROUP_SIZE_Z));
 
 	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.GroundScrolling"), ComputeShader, PassParameters, DispatchCount);
 }
@@ -310,7 +310,7 @@ static void AddFadePass(
 
 	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
 			FIntVector(NumCells.X, NumCells.Y, 1),
-			FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
+			FIntVector(GROUND_GROUP_SIZE_X, GROUND_GROUP_SIZE_Y, GROUND_GROUP_SIZE_Z));
 
 	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.Fade"), ComputeShader, PassParameters, DispatchCount);
 }
@@ -345,7 +345,7 @@ static void AddUpdateDepthPass(
 
 	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
 		FIntVector(NumCells.X, NumCells.Y, 1),
-		FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
+		FIntVector(GROUND_GROUP_SIZE_X, GROUND_GROUP_SIZE_Y, GROUND_GROUP_SIZE_Z));
 	
 	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.UpdateDepth"), ComputeShader, PassParameters, DispatchCount);
 }
