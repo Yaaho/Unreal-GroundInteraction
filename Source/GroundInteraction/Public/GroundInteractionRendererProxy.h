@@ -100,10 +100,10 @@ private:
 		return FVector(CurrentSnappedLocation.X, CurrentSnappedLocation.Y, CurrentSnappedLocation.Z - InteractionExtentWS.Z);
 	}
 	
-	// 이전 프레임의 bottom interaction center를 가져오는 함수
+	// 이전 bottom interaction center를 가져오는 함수
 	FVector GetPreviousBottomInteractionCenterWS() const
 	{
-		return FVector(PreviousSnappedLocation.X,PreviousSnappedLocation.Y, PreviousSnappedLocation.Z - InteractionExtentWS.Z);
+		return FVector(PreviousSnappedLocation.X, PreviousSnappedLocation.Y, PreviousSnappedLocation.Z - InteractionExtentWS.Z);
 	}
 	
 	// 최대 씬 뎁스를 가져오는 함수

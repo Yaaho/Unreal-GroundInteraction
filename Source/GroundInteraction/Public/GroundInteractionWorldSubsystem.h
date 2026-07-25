@@ -4,14 +4,28 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "UObject/ObjectKey.h"
 #include "GroundInteractionWorldSubsystem.generated.h"
 
 class FGroundInteractionSceneViewExtension;
 class USceneComponent;
+class UPrimitiveComponent;
 class UGroundInteractionRendererComponent;
 class UGroundInteractionTargetComponent;
 class UWaterInteractionRendererComponent;
 struct FStreamableHandle;
+
+struct FInteractionPrimitiveRuntimeState
+{
+	FVector PreviousLocationWS = FVector::ZeroVector;
+	FVector CurrentLocationWS = FVector::ZeroVector;
+	FVector VelocityWS = FVector::ZeroVector;
+	FBoxSphereBounds BoundsWS = FBoxSphereBounds(ForceInit);
+	bool bHasPreviousLocation = false;
+
+	double NextWaterPulseTimeSeconds = 0.0;
+	uint64 LastWaterPulseFrameNumber = MAX_uint64;
+};
 
 UCLASS()
 class GROUNDINTERACTION_API UGroundInteractionWorldSubsystem : public UTickableWorldSubsystem
@@ -36,6 +50,11 @@ public:
 	{
 		return InteractionPrimitives;
 	}
+
+	void UpdateInteractionPrimitiveStates_GameThread(double CurrentTimeSeconds);
+	const FInteractionPrimitiveRuntimeState* FindInteractionPrimitiveState(const UPrimitiveComponent* Primitive) const;
+	bool CanWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds) const;
+	void ConsumeWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds, float PulseIntervalSeconds, float PulseRandomIntervalSeconds);
 	
 	UGroundInteractionRendererComponent* GetRendererComponent() const
 	{
@@ -114,6 +133,10 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TWeakObjectPtr<UPrimitiveComponent>> InteractionPrimitives;
+
+	TMap<FObjectKey, FInteractionPrimitiveRuntimeState> InteractionPrimitiveStates;
+	uint64 LastPrimitiveStateUpdateFrameNumber = MAX_uint64;
+	double LastPrimitiveStateUpdateTimeSeconds = -1.0;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> DepthRT = nullptr;

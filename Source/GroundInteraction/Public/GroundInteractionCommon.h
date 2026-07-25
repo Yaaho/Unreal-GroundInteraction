@@ -7,10 +7,17 @@
 // GroundInteraction 렌더 좌표 계산용 공통 선언
 namespace GroundInteractionCommon
 {
-	FORCEINLINE const FName& GetDepthPassTypeName()
+	FORCEINLINE const FName& GetGroundDepthPassTypeName()
 	{
 		// Must match IMPLEMENT_CUSTOM_RENDER_PASS(FGroundInteractionDepthPass).
 		static const FName Name(TEXT("FGroundInteractionDepthPass"));
+		return Name;
+	}
+
+	FORCEINLINE const FName& GetWaterDepthPassTypeName()
+	{
+		// Must match IMPLEMENT_CUSTOM_RENDER_PASS(FWaterInteractionDepthPass).
+		static const FName Name(TEXT("FWaterInteractionDepthPass"));
 		return Name;
 	}
 

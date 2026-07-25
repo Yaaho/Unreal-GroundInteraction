@@ -4,6 +4,7 @@
 #include "GroundInteractionWorldSubsystem.h"
 #include "GroundInteractionRendererProxy.h"
 #include "GroundInteractionRendererComponent.h"
+#include "WaterInteractionRendererComponent.h"
 #include "WaterInteractionRendererProxy.h"
 
 #include "Runtime\Engine\Public\SceneView.h"
@@ -60,14 +61,15 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 		return;
 	}
 
-	UGroundInteractionRendererComponent* RendererComponent = Subsystem->GetRendererComponent();
-
-	if (!RendererComponent)
+	if (UGroundInteractionRendererComponent* RendererComponent = Subsystem->GetRendererComponent())
 	{
-		return;
+		RendererComponent->UpdateGroundInteractionDepth_GameThread(InViewFamily);
 	}
 
-	RendererComponent->UpdateGroundInteractionDepth_GameThread(InViewFamily);
+	if (UWaterInteractionRendererComponent* WaterRendererComponent = Subsystem->GetWaterRendererComponent())
+	{
+		WaterRendererComponent->UpdateWaterInteractionDepth_GameThread(InViewFamily);
+	}
 }
 
 

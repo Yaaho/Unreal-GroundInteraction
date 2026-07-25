@@ -8,6 +8,7 @@
 #include "WaterInteractionRendererComponent.h"
 
 #include "Components/SceneComponent.h"
+#include "CoreGlobals.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Level.h"
 #include "Components/PrimitiveComponent.h"
@@ -55,6 +56,9 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 
 	RegisteredTargets.Empty();
 	InteractionPrimitives.Empty();
+	InteractionPrimitiveStates.Empty();
+	LastPrimitiveStateUpdateFrameNumber = MAX_uint64;
+	LastPrimitiveStateUpdateTimeSeconds = -1.0;
 
 	bAssetsReady = false;
 	bWaterAssetsReady = false;
@@ -147,6 +151,13 @@ void UGroundInteractionWorldSubsystem::RegisterInteractionPrimitive(UPrimitiveCo
 	}
 
 	InteractionPrimitives.AddUnique(Primitive);
+
+	FInteractionPrimitiveRuntimeState& State = InteractionPrimitiveStates.FindOrAdd(FObjectKey(Primitive));
+	State.PreviousLocationWS = Primitive->Bounds.Origin;
+	State.CurrentLocationWS = Primitive->Bounds.Origin;
+	State.VelocityWS = Primitive->GetComponentVelocity();
+	State.BoundsWS = Primitive->Bounds;
+	State.bHasPreviousLocation = false;
 }
 
 void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive)
@@ -157,6 +168,89 @@ void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitive
 	}
 
 	InteractionPrimitives.Remove(Primitive);
+	InteractionPrimitiveStates.Remove(FObjectKey(Primitive));
+}
+
+void UGroundInteractionWorldSubsystem::UpdateInteractionPrimitiveStates_GameThread(double CurrentTimeSeconds)
+{
+	check(IsInGameThread());
+
+	if (LastPrimitiveStateUpdateFrameNumber == GFrameCounter)
+	{
+		return;
+	}
+
+	const double DeltaTimeSeconds = LastPrimitiveStateUpdateTimeSeconds >= 0.0 ? FMath::Max(CurrentTimeSeconds - LastPrimitiveStateUpdateTimeSeconds, 0.0) : 0.0;
+
+	LastPrimitiveStateUpdateFrameNumber = GFrameCounter;
+	LastPrimitiveStateUpdateTimeSeconds = CurrentTimeSeconds;
+
+	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
+	{
+		UPrimitiveComponent* Primitive = PrimitiveWeak.Get();
+
+		if (!IsValid(Primitive) || !Primitive->IsRegistered())
+		{
+			continue;
+		}
+
+		FInteractionPrimitiveRuntimeState& State = InteractionPrimitiveStates.FindOrAdd(FObjectKey(Primitive));
+
+		State.PreviousLocationWS = State.CurrentLocationWS;
+		State.CurrentLocationWS = Primitive->Bounds.Origin;
+		State.BoundsWS = Primitive->Bounds;
+
+		const FVector ComponentVelocityWS = Primitive->GetComponentVelocity();
+		const FVector DerivedVelocityWS = State.bHasPreviousLocation && DeltaTimeSeconds > SMALL_NUMBER ? (State.CurrentLocationWS - State.PreviousLocationWS) / DeltaTimeSeconds : FVector::ZeroVector;
+
+		State.VelocityWS = ComponentVelocityWS.SizeSquared() > DerivedVelocityWS.SizeSquared() ? ComponentVelocityWS : DerivedVelocityWS;
+		State.bHasPreviousLocation = true;
+	}
+}
+
+const FInteractionPrimitiveRuntimeState* UGroundInteractionWorldSubsystem::FindInteractionPrimitiveState(const UPrimitiveComponent* Primitive) const
+{
+	if (!Primitive)
+	{
+		return nullptr;
+	}
+
+	return InteractionPrimitiveStates.Find(FObjectKey(Primitive));
+}
+
+bool UGroundInteractionWorldSubsystem::CanWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds) const
+{
+	check(IsInGameThread());
+
+	const FInteractionPrimitiveRuntimeState* State = FindInteractionPrimitiveState(Primitive);
+	if (!State)
+	{
+		return false;
+	}
+
+	return State->LastWaterPulseFrameNumber == GFrameCounter || CurrentTimeSeconds >= State->NextWaterPulseTimeSeconds;
+}
+
+void UGroundInteractionWorldSubsystem::ConsumeWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds, float PulseIntervalSeconds, float PulseRandomIntervalSeconds)
+{
+	check(IsInGameThread());
+
+	if (!Primitive)
+	{
+		return;
+	}
+
+	FInteractionPrimitiveRuntimeState* State = InteractionPrimitiveStates.Find(FObjectKey(Primitive));
+	if (!State || State->LastWaterPulseFrameNumber == GFrameCounter)
+	{
+		return;
+	}
+
+	const float SafePulseIntervalSeconds = FMath::Max(PulseIntervalSeconds, 0.001f);
+	const float SafePulseRandomIntervalSeconds = FMath::Max(PulseRandomIntervalSeconds, 0.0f);
+
+	State->LastWaterPulseFrameNumber = GFrameCounter;
+	State->NextWaterPulseTimeSeconds = CurrentTimeSeconds + SafePulseIntervalSeconds + FMath::FRandRange(0.0f, SafePulseRandomIntervalSeconds);
 }
 
 void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()

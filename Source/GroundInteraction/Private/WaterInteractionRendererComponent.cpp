@@ -8,6 +8,10 @@
 #include "Engine/World.h"
 #include "Kismet/KismetMaterialLibrary.h"
 #include "RenderingThread.h"
+#include "SceneView.h"
+#include "WaterBodyComponent.h"
+#include "WaterBodyManager.h"
+#include "WaterSubsystem.h"
 
 UWaterInteractionRendererComponent::UWaterInteractionRendererComponent()
 {
@@ -40,6 +44,11 @@ void UWaterInteractionRendererComponent::SendRenderTransform_Concurrent()
 {
 	Super::SendRenderTransform_Concurrent();
 
+	UpdateRenderProxyTransform();
+}
+
+void UWaterInteractionRendererComponent::UpdateRenderProxyTransform()
+{
 	if (!RenderProxy)
 	{
 		return;
@@ -99,6 +108,7 @@ void UWaterInteractionRendererComponent::InitializeRenderer(UGroundInteractionWo
 	MaterialParameterCollection = InMaterialParameterCollection;
 
 	RenderTargetSize = FIntPoint::ZeroValue;
+	DepthUpdateAccumulatorSeconds = 0.0f;
 
 	if (IsRegistered())
 	{
@@ -106,7 +116,203 @@ void UWaterInteractionRendererComponent::InitializeRenderer(UGroundInteractionWo
 		CreateRenderProxy();
 	}
 
-	SendRenderTransform_Concurrent();
+	UpdateRenderProxyTransform();
+}
+
+void UWaterInteractionRendererComponent::UpdateWaterInteractionDepth_GameThread(FSceneViewFamily& InViewFamily)
+{
+	check(IsInGameThread());
+
+	if (!RenderProxy)
+	{
+		return;
+	}
+
+	UGroundInteractionWorldSubsystem* Subsystem = OwnerSubsystem.Get();
+
+	if (!Subsystem)
+	{
+		if (UWorld* World = GetWorld())
+		{
+			Subsystem = World->GetSubsystem<UGroundInteractionWorldSubsystem>();
+			OwnerSubsystem = Subsystem;
+		}
+	}
+
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+	if (!Settings || !Settings->bEnableWaterInteraction || !Subsystem || !Subsystem->AreWaterAssetsReady())
+	{
+		return;
+	}
+
+	const FIntPoint NewRenderTargetSize = Settings->GetWaterInteractionRenderTargetSize();
+
+	if (RenderTargetSize != NewRenderTargetSize)
+	{
+		DepthUpdateAccumulatorSeconds = 0.0f;
+		UpdateRenderProxyTransform();
+	}
+
+	if (RenderTargetSize.X <= 0 || RenderTargetSize.Y <= 0)
+	{
+		return;
+	}
+
+	if (Settings->WaterInteractionPulseStrength <= 0.0f)
+	{
+		return;
+	}
+
+	const float DepthUpdateIntervalSeconds = Settings->GetWaterInteractionUpdateIntervalSeconds();
+	const float DeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0f);
+
+	DepthUpdateAccumulatorSeconds += DeltaTimeSeconds;
+
+	if (DepthUpdateAccumulatorSeconds < DepthUpdateIntervalSeconds)
+	{
+		return;
+	}
+
+	const int32 DepthUpdateStepCount = FMath::Max(FMath::FloorToInt(DepthUpdateAccumulatorSeconds / DepthUpdateIntervalSeconds), 1);
+
+	DepthUpdateAccumulatorSeconds -= static_cast<float>(DepthUpdateStepCount) * DepthUpdateIntervalSeconds;
+
+	const double CurrentTimeSeconds = InViewFamily.Time.GetRealTimeSeconds();
+
+	Subsystem->UpdateInteractionPrimitiveStates_GameThread(CurrentTimeSeconds);
+
+	const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->WaterInteractionWorldExtent);
+	const FVector RawCenterWS = GetComponentLocation();
+	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(RawCenterWS, InteractionExtentWS, RenderTargetSize, Settings->WaterInteractionLocationSnapCellCount);
+
+	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
+	TArray<UPrimitiveComponent*> SelectedPrimitives;
+	BuildWaterDepthPassShowOnlyPrimitives(ShowOnlyPrimitives, SelectedPrimitives, Subsystem, Settings, SnappedCenterWS, InteractionExtentWS, CurrentTimeSeconds);
+
+	if (ShowOnlyPrimitives.Num() <= 0)
+	{
+		return;
+	}
+
+	const FVector BottomInteractionCenterWS = GroundInteractionCommon::GetBottomInteractionCenterWS(SnappedCenterWS, InteractionExtentWS);
+
+	RenderProxy->QueueWaterInteractionDepthPass_GameThread(InViewFamily, ShowOnlyPrimitives, BottomInteractionCenterWS, RenderTargetSize, Settings->WaterInteractionPulseStrength);
+
+	for (UPrimitiveComponent* Primitive : SelectedPrimitives)
+	{
+		Subsystem->ConsumeWaterInteractionPulse_GameThread(Primitive, CurrentTimeSeconds, Settings->WaterInteractionPulseInterval, Settings->WaterInteractionPulseRandomInterval);
+	}
+}
+
+void UWaterInteractionRendererComponent::BuildWaterDepthPassShowOnlyPrimitives(TSet<FPrimitiveComponentId>& OutShowOnlyPrimitives, TArray<UPrimitiveComponent*>& OutSelectedPrimitives, UGroundInteractionWorldSubsystem* Subsystem, const UGroundInteractionSettings* Settings, const FVector& InteractionCenterWS, const FVector& InteractionExtentWS, double CurrentTimeSeconds) const
+{
+	if (!Subsystem || !Settings)
+	{
+		return;
+	}
+
+	const float MinVelocitySq = FMath::Square(FMath::Max(Settings->WaterInteractionMinVelocity, 0.0f));
+	const FBox InteractionBounds = FBox::BuildAABB(InteractionCenterWS, InteractionExtentWS);
+	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& InteractionPrimitives = Subsystem->GetInteractionPrimitives();
+
+	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
+	{
+		UPrimitiveComponent* Primitive = PrimitiveWeak.Get();
+
+		if (!IsValid(Primitive) || !Primitive->IsRegistered())
+		{
+			continue;
+		}
+
+		const FInteractionPrimitiveRuntimeState* PrimitiveState = Subsystem->FindInteractionPrimitiveState(Primitive);
+
+		if (!PrimitiveState || PrimitiveState->VelocityWS.SizeSquared() < MinVelocitySq)
+		{
+			continue;
+		}
+
+		if (!Subsystem->CanWaterInteractionPulse_GameThread(Primitive, CurrentTimeSeconds))
+		{
+			continue;
+		}
+
+		if (!InteractionBounds.Intersect(PrimitiveState->BoundsWS.GetBox()))
+		{
+			continue;
+		}
+
+		if (!IsPrimitiveNearWaterSurface(*PrimitiveState, Settings))
+		{
+			continue;
+		}
+
+		OutShowOnlyPrimitives.Add(Primitive->GetPrimitiveSceneId());
+		OutSelectedPrimitives.Add(Primitive);
+	}
+}
+
+bool UWaterInteractionRendererComponent::IsPrimitiveNearWaterSurface(const FInteractionPrimitiveRuntimeState& PrimitiveState, const UGroundInteractionSettings* Settings) const
+{
+	UWorld* World = GetWorld();
+	FWaterBodyManager* WaterBodyManager = UWaterSubsystem::GetWaterBodyManager(World);
+
+	if (!World || !WaterBodyManager || !Settings)
+	{
+		return false;
+	}
+
+	const float SurfaceDistanceTolerance = FMath::Max(Settings->WaterInteractionSurfaceDistanceTolerance, 0.0f);
+	const float QueryDistance = PrimitiveState.BoundsWS.SphereRadius + SurfaceDistanceTolerance;
+	const FBox PrimitiveBounds = PrimitiveState.BoundsWS.GetBox();
+	bool bIsNearWaterSurface = false;
+
+	WaterBodyManager->ForEachWaterBodyComponent(
+		[&](UWaterBodyComponent* WaterBodyComponent)
+		{
+			if (!IsValid(WaterBodyComponent) || !WaterBodyComponent->IsRegistered())
+			{
+				return true;
+			}
+
+			if (!WaterBodyComponent->Bounds.GetBox().ExpandBy(QueryDistance).Intersect(PrimitiveBounds))
+			{
+				return true;
+			}
+
+			const EWaterBodyQueryFlags QueryFlags = EWaterBodyQueryFlags::ComputeLocation | EWaterBodyQueryFlags::ComputeNormal;
+			const TValueOrError<FWaterBodyQueryResult, EWaterBodyQueryError> QueryResult = WaterBodyComponent->TryQueryWaterInfoClosestToWorldLocation(PrimitiveState.BoundsWS.Origin, QueryFlags);
+
+			if (!QueryResult.HasValue())
+			{
+				return true;
+			}
+
+			const FWaterBodyQueryResult& Query = QueryResult.GetValue();
+
+			if (Query.IsInExclusionVolume())
+			{
+				return true;
+			}
+
+			FVector SurfaceNormalWS = Query.GetWaterSurfaceNormal();
+
+			if (!SurfaceNormalWS.Normalize())
+			{
+				SurfaceNormalWS = FVector::UpVector;
+			}
+
+			const float SignedDistanceToSurface = FVector::DotProduct(PrimitiveState.BoundsWS.Origin - Query.GetWaterSurfaceLocation(), SurfaceNormalWS);
+
+			if (FMath::Abs(SignedDistanceToSurface) <= QueryDistance)
+			{
+				bIsNearWaterSurface = true;
+				return false;
+			}
+
+			return true;
+		});
+
+	return bIsNearWaterSurface;
 }
 
 void UWaterInteractionRendererComponent::CreateRenderProxy()

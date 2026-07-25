@@ -23,11 +23,11 @@ static constexpr EPixelFormat DEPTH_FADE_PIXEL_FORMAT = PF_R16F;
 
 
 // Previous 렌더 타겟을 읽어서 지정한 픽셀만큼 이동시키는 셰이더
-class FScrollingCS : public FGlobalShader
+class FGroundScrollingCS : public FGlobalShader
 {
 public:
-	DECLARE_GLOBAL_SHADER(FScrollingCS);
-	SHADER_USE_PARAMETER_STRUCT(FScrollingCS, FGlobalShader);
+	DECLARE_GLOBAL_SHADER(FGroundScrollingCS);
+	SHADER_USE_PARAMETER_STRUCT(FGroundScrollingCS, FGlobalShader);
 
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
@@ -50,7 +50,6 @@ public:
 		SHADER_PARAMETER(float, CurrentCaptureViewOriginZ)
 		SHADER_PARAMETER(float, MaxSceneDepth)
 		SHADER_PARAMETER(float, SceneDepthInvalidEpsilon)
-		SHADER_PARAMETER(uint32, bHasHistory)
 
 		SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture2D<float>, InputDepthTexture)
 		SHADER_PARAMETER_RDG_TEXTURE_SRV(Texture2D<float>, InputFadeTexture)
@@ -241,12 +240,12 @@ private:
 
 
 
-IMPLEMENT_GLOBAL_SHADER(FScrollingCS, "/Plugin/GroundInteraction/GroundInteractionScrolling.usf", "MainCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FGroundScrollingCS, "/Plugin/GroundInteraction/GroundInteractionGroundScrolling.usf", "MainCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FFadeCS, "/Plugin/GroundInteraction/GroundInteractionFade.usf", "MainCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FUpdateDepthCS, "/Plugin/GroundInteraction/GroundInteractionUpdateDepth.usf", "MainCS", SF_Compute);
 
 
-static void AddScrollingPass(
+static void AddGroundScrollingPass(
 	FRDGBuilder& GraphBuilder,
 	ERHIFeatureLevel::Type FeatureLevel,
 	FRDGTextureSRVRef PreviousDepthSRV,
@@ -258,10 +257,9 @@ static void AddScrollingPass(
 	float PrevCaptureViewOriginZ,
 	float CurrentCaptureViewOriginZ,
 	float MaxSceneDepth,
-	float SceneDepthInvalidEpsilon,
-	bool bHasHistory)
+	float SceneDepthInvalidEpsilon)
 {
-	FScrollingCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FScrollingCS::FParameters>();
+	FGroundScrollingCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FGroundScrollingCS::FParameters>();
 
 	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
@@ -271,20 +269,19 @@ static void AddScrollingPass(
 	PassParameters->CurrentCaptureViewOriginZ = CurrentCaptureViewOriginZ;
 	PassParameters->MaxSceneDepth = MaxSceneDepth;
 	PassParameters->SceneDepthInvalidEpsilon = SceneDepthInvalidEpsilon;
-	PassParameters->bHasHistory = bHasHistory ? 1u : 0u;
 
 	PassParameters->InputDepthTexture = PreviousDepthSRV;
 	PassParameters->InputFadeTexture = PreviousFadeSRV;
 	PassParameters->OutputDepthTexture = CurrentDepthUAV;
 	PassParameters->OutputFadeTexture = CurrentFadeUAV;
 
-	TShaderMapRef<FScrollingCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
+	TShaderMapRef<FGroundScrollingCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
 
 	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(
 			FIntVector(NumCells.X, NumCells.Y, 1),
 			FIntVector(GROUP_SIZE_X, GROUP_SIZE_Y, GROUP_SIZE_Z));
 
-	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.Scrolling"), ComputeShader, PassParameters, DispatchCount);
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.GroundScrolling"), ComputeShader, PassParameters, DispatchCount);
 }
 
 
@@ -443,7 +440,7 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 	// 현재 프레임의 bottom interaction center 위치
 	const FVector CurrentBottomInteractionCenterWS = GetBottomInteractionCenterWS();
 
-	// 이전 프레임의 bottom interaction center 위치
+	// 이전 bottom interaction center 위치
 	const FVector PreviousBottomInteractionCenterWS = bHasPreviousCapture ? GetPreviousBottomInteractionCenterWS() : CurrentBottomInteractionCenterWS;
 	
 	// 이전 프레임 중심 위치와 현재 프레임 중심 위치를 비교해 몇 픽셀만큼 이동했는지 저장한다.
@@ -464,17 +461,17 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 		FPlaneTexture& CurrentDepth = DepthFadeTextures[GetCurrentDepthFadeTextureId()][DEPTH_FADE_CHANNEL_DEPTH];
 		FPlaneTexture& CurrentFade = DepthFadeTextures[GetCurrentDepthFadeTextureId()][DEPTH_FADE_CHANNEL_FADE];
 
-		FRDGTextureRef PreviousDepthTexture = PreviousDepth.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_PreviousDepth"));
-		FRDGTextureRef PreviousFadeTexture = PreviousFade.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_PreviousFade"));
+		FRDGTextureRef PreviousDepthTexture = PreviousDepth.GetOrCreateTexture(GraphBuilder, TEXT("GroundScrolling_PreviousDepth"));
+		FRDGTextureRef PreviousFadeTexture = PreviousFade.GetOrCreateTexture(GraphBuilder, TEXT("GroundScrolling_PreviousFade"));
 		
-		FRDGTextureSRVRef PreviousDepthSRV = PreviousDepth.GetOrCreateSRV(GraphBuilder, TEXT("Scrolling_PreviousDepth"));
-		FRDGTextureSRVRef PreviousFadeSRV = PreviousFade.GetOrCreateSRV(GraphBuilder, TEXT("Scrolling_PreviousFade"));
+		FRDGTextureSRVRef PreviousDepthSRV = PreviousDepth.GetOrCreateSRV(GraphBuilder, TEXT("GroundScrolling_PreviousDepth"));
+		FRDGTextureSRVRef PreviousFadeSRV = PreviousFade.GetOrCreateSRV(GraphBuilder, TEXT("GroundScrolling_PreviousFade"));
 
-		FRDGTextureRef CurrentDepthTexture = CurrentDepth.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_CurrentDepth"));
-		FRDGTextureRef CurrentFadeTexture = CurrentFade.GetOrCreateTexture(GraphBuilder, TEXT("Scrolling_CurrentFade"));
+		FRDGTextureRef CurrentDepthTexture = CurrentDepth.GetOrCreateTexture(GraphBuilder, TEXT("GroundScrolling_CurrentDepth"));
+		FRDGTextureRef CurrentFadeTexture = CurrentFade.GetOrCreateTexture(GraphBuilder, TEXT("GroundScrolling_CurrentFade"));
 
-		FRDGTextureUAVRef CurrentDepthUAV = CurrentDepth.GetOrCreateUAV(GraphBuilder, TEXT("Scrolling_CurrentDepth"));
-		FRDGTextureUAVRef CurrentFadeUAV = CurrentFade.GetOrCreateUAV(GraphBuilder, TEXT("Scrolling_CurrentFade"));
+		FRDGTextureUAVRef CurrentDepthUAV = CurrentDepth.GetOrCreateUAV(GraphBuilder, TEXT("GroundScrolling_CurrentDepth"));
+		FRDGTextureUAVRef CurrentFadeUAV = CurrentFade.GetOrCreateUAV(GraphBuilder, TEXT("GroundScrolling_CurrentFade"));
 
 		if (PreviousDepthTexture && PreviousFadeTexture &&
 			PreviousDepthSRV && PreviousFadeSRV &&
@@ -486,7 +483,7 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 			GraphBuilder.UseInternalAccessMode(CurrentDepthTexture);
 			GraphBuilder.UseInternalAccessMode(CurrentFadeTexture);
 
-		AddScrollingPass(
+			AddGroundScrollingPass(
 				GraphBuilder,
 				PrimaryView->GetFeatureLevel(),
 				PreviousDepthSRV,
@@ -494,16 +491,15 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 				CurrentDepthUAV,
 				CurrentFadeUAV,
 				RenderTargetSize,
-			ScrollPixels,
-			PreviousBottomInteractionCenterWS.Z,
-			CurrentBottomInteractionCenterWS.Z,
+				ScrollPixels,
+				PreviousBottomInteractionCenterWS.Z,
+				CurrentBottomInteractionCenterWS.Z,
 				GetMaxSceneDepth(),
-				GetSceneDepthInvalidEpsilon(),
-				true);
+				GetSceneDepthInvalidEpsilon());
 
 			AdvanceDepthFadeTextureId();
 
-			// bottom interaction center 위치 변경
+			// 이전 snapped location 변경
 			PreviousSnappedLocation = CurrentSnappedLocation;
 		}
 	}

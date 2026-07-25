@@ -58,13 +58,18 @@ void UGroundInteractionRendererComponent::InitializeRenderer(UGroundInteractionW
 		CreateRenderProxy();
 	}
 	
-	SendRenderTransform_Concurrent();
+	UpdateRenderProxyTransform();
 }
 
 void UGroundInteractionRendererComponent::SendRenderTransform_Concurrent()
 {
 	Super::SendRenderTransform_Concurrent();
 
+	UpdateRenderProxyTransform();
+}
+
+void UGroundInteractionRendererComponent::UpdateRenderProxyTransform()
+{
 	if (!RenderProxy)
 	{
 		return;
@@ -150,7 +155,7 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 		// RT size 변경 시 depth update accumulator 초기화
 		DepthUpdateAccumulatorSeconds = 0.0f;
 
-		SendRenderTransform_Concurrent();
+		UpdateRenderProxyTransform();
 	}
 
 	if (RenderTargetSize.X <= 0 || RenderTargetSize.Y <= 0)

@@ -53,6 +53,7 @@ void UGroundInteractionSettings::PostEditChangeProperty(FPropertyChangedEvent& P
 	WaterInteractionMinVelocity = FMath::Max(WaterInteractionMinVelocity, 0.0f);
 	WaterInteractionSurfaceDistanceTolerance = FMath::Max(WaterInteractionSurfaceDistanceTolerance, 0.0f);
 	WaterInteractionPulseInterval = FMath::Max(WaterInteractionPulseInterval, 0.001f);
+	WaterInteractionPulseRandomInterval = FMath::Max(WaterInteractionPulseRandomInterval, 0.0f);
 	WaterInteractionPulseStrength = FMath::Max(WaterInteractionPulseStrength, 0.0f);
 
 	// GroundInteractionDepthUpdateRate 빈도가  DepthFadeUpdateRate 빈도보다 낮아지지 않도록 함

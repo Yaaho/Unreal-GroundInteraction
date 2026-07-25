@@ -44,6 +44,7 @@ public:
 private:
 	void CreateRenderProxy();
 	void DestroyRenderProxy();
+	void UpdateRenderProxyTransform();
 	void ApplyOutputRenderTargets();
 
 	bool InitOutputRenderTarget(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const;
