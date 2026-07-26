@@ -1,6 +1,7 @@
 ﻿// Fill out your copyright notice in the Description page of Project Settings.
 
 #include "GroundInteractionWorldSubsystem.h"
+#include "GroundInteractionCommon.h"
 #include "GroundInteractionSceneViewExtension.h"
 #include "GroundInteractionSettings.h"
 #include "GroundInteractionRendererComponent.h"
@@ -8,14 +9,20 @@
 #include "WaterInteractionRendererComponent.h"
 
 #include "Components/SceneComponent.h"
-#include "CoreGlobals.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Level.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
+#include "GameFramework/Actor.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Engine/AssetManager.h"
 #include "Engine/StreamableManager.h"
+#include "NiagaraComponent.h"
+#include "NiagaraDataInterfaceArrayFunctionLibrary.h"
+#include "NiagaraSystem.h"
+#include "WaterBodyComponent.h"
+#include "WaterBodyManager.h"
+#include "WaterSubsystem.h"
 
 namespace GroundInteractionAssetPaths
 {
@@ -25,12 +32,22 @@ namespace GroundInteractionAssetPaths
 	static const FSoftObjectPath FadeRT(TEXT("/GroundInteraction/RT/RT_GroundInteractionFade.RT_GroundInteractionFade"));
 
 	static const FSoftObjectPath WaterHeightRT(TEXT("/GroundInteraction/RT/RT_WaterinteractionHeight.RT_WaterinteractionHeight"));
+
+	static const FSoftObjectPath WaterSplatSystem(TEXT("/GroundInteraction/Water/FX/NS_WaterSplatCapture.NS_WaterSplatCapture"));
 	
 	static const FSoftObjectPath CubeMesh(TEXT("/GroundInteraction/Mesh/Cube.Cube"));
 	
 	static const FSoftObjectPath SphereMesh(TEXT("/GroundInteraction/Mesh/Sphere.Sphere"));
 	
 	static const FSoftObjectPath CapsuleMesh(TEXT("/GroundInteraction/Mesh/Capsule.Capsule"));
+}
+
+namespace GroundInteractionNiagaraParameters
+{
+	static const FName SplatPositions(TEXT("User.SplatPositions"));
+	static const FName SplatSizes(TEXT("User.SplatSizes"));
+	static const FName SplatLifetime(TEXT("User.SplatLifetime"));
+	static const FName SplatCount(TEXT("User.SplatCount"));
 }
 
 void UGroundInteractionWorldSubsystem::Initialize(FSubsystemCollectionBase& Collection)
@@ -56,9 +73,8 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 
 	RegisteredTargets.Empty();
 	InteractionPrimitives.Empty();
-	InteractionPrimitiveStates.Empty();
-	LastPrimitiveStateUpdateFrameNumber = MAX_uint64;
-	LastPrimitiveStateUpdateTimeSeconds = -1.0;
+	PendingWaterSplatPositions.Reset();
+	PendingWaterSplatSizes.Reset();
 
 	bAssetsReady = false;
 	bWaterAssetsReady = false;
@@ -66,6 +82,7 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 	DepthRT = nullptr;
 	FadeRT = nullptr;
 	WaterHeightRT = nullptr;
+	WaterSplatSystem = nullptr;
 	CubeMesh = nullptr;
 	SphereMesh = nullptr;
 	CapsuleMesh = nullptr;
@@ -99,11 +116,18 @@ void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
 
 	if (!GetPlayerCameraLocation(RawCameraLocationWS))
 	{
+		if (IsValid(WaterSplatComponent) && WaterSplatComponent->IsRegistered())
+		{
+			WaterSplatComponent->SetVariableInt(GroundInteractionNiagaraParameters::SplatCount, 0);
+		}
+
 		return;
 	}
 	
 	// 렌더 액터 위치를 플레이어 위치로 설정
 	RendererActor->SetActorLocation(RawCameraLocationWS);
+
+	UpdateWaterSplats();
 }
 
 TStatId UGroundInteractionWorldSubsystem::GetStatId() const
@@ -151,13 +175,6 @@ void UGroundInteractionWorldSubsystem::RegisterInteractionPrimitive(UPrimitiveCo
 	}
 
 	InteractionPrimitives.AddUnique(Primitive);
-
-	FInteractionPrimitiveRuntimeState& State = InteractionPrimitiveStates.FindOrAdd(FObjectKey(Primitive));
-	State.PreviousLocationWS = Primitive->Bounds.Origin;
-	State.CurrentLocationWS = Primitive->Bounds.Origin;
-	State.VelocityWS = Primitive->GetComponentVelocity();
-	State.BoundsWS = Primitive->Bounds;
-	State.bHasPreviousLocation = false;
 }
 
 void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive)
@@ -168,89 +185,227 @@ void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitive
 	}
 
 	InteractionPrimitives.Remove(Primitive);
-	InteractionPrimitiveStates.Remove(FObjectKey(Primitive));
 }
 
-void UGroundInteractionWorldSubsystem::UpdateInteractionPrimitiveStates_GameThread(double CurrentTimeSeconds)
+void UGroundInteractionWorldSubsystem::AddWaterSplat(const FVector& PositionWS, const FVector2D& SizeWS)
 {
 	check(IsInGameThread());
 
-	if (LastPrimitiveStateUpdateFrameNumber == GFrameCounter)
+	PendingWaterSplatPositions.Add(PositionWS);
+	PendingWaterSplatSizes.Add(SizeWS);
+}
+
+void UGroundInteractionWorldSubsystem::UpdateWaterSplats()
+{
+	check(IsInGameThread());
+
+	if (!IsValid(WaterSplatComponent) || !WaterSplatComponent->IsRegistered())
 	{
 		return;
 	}
 
-	const double DeltaTimeSeconds = LastPrimitiveStateUpdateTimeSeconds >= 0.0 ? FMath::Max(CurrentTimeSeconds - LastPrimitiveStateUpdateTimeSeconds, 0.0) : 0.0;
+	WaterSplatComponent->SetVariableInt(GroundInteractionNiagaraParameters::SplatCount, 0);
 
-	LastPrimitiveStateUpdateFrameNumber = GFrameCounter;
-	LastPrimitiveStateUpdateTimeSeconds = CurrentTimeSeconds;
-
-	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+	if (!Settings || !Settings->bEnableWaterInteraction || !bWaterAssetsReady || !RendererActor)
 	{
-		UPrimitiveComponent* Primitive = PrimitiveWeak.Get();
+		return;
+	}
 
-		if (!IsValid(Primitive) || !Primitive->IsRegistered())
+	TArray<FVector> SplatPositions;
+	TArray<FVector2D> SplatSizes;
+
+	const int32 MaxSplatCount = InteractionPrimitives.Num() + PendingWaterSplatPositions.Num();
+	SplatPositions.Reserve(MaxSplatCount);
+	SplatSizes.Reserve(MaxSplatCount);
+
+	const float SpawnProbability = FMath::Clamp(Settings->WaterInteractionSplatSpawnProbability, 0.0f, 1.0f);
+
+	if (SpawnProbability > 0.0f)
+	{
+		const float MinVelocitySq = FMath::Square(FMath::Max(Settings->WaterInteractionMinVelocity, 0.0f));
+		const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->WaterInteractionWorldExtent);
+		const FIntPoint RenderTargetSize = Settings->GetWaterInteractionRenderTargetSize();
+		const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(
+			RendererActor->GetActorLocation(),
+			InteractionExtentWS,
+			RenderTargetSize,
+			Settings->WaterInteractionLocationSnapCellCount);
+		const FBox InteractionBounds = FBox::BuildAABB(SnappedCenterWS, InteractionExtentWS);
+
+		for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
 		{
-			continue;
+			UPrimitiveComponent* Primitive = PrimitiveWeak.Get();
+			if (!IsValid(Primitive) || !Primitive->IsRegistered())
+			{
+				continue;
+			}
+
+			const FVector VelocityWS = GetWaterSplatVelocityWS(Primitive);
+			if (VelocityWS.SizeSquared() < MinVelocitySq)
+			{
+				continue;
+			}
+
+			if (!InteractionBounds.Intersect(Primitive->Bounds.GetBox()))
+			{
+				continue;
+			}
+
+			if (SpawnProbability < 1.0f && FMath::FRand() >= SpawnProbability)
+			{
+				continue;
+			}
+
+			FVector SplatPositionWS = FVector::ZeroVector;
+			FVector2D SplatSizeWS = FVector2D::ZeroVector;
+			if (!TryCalculateWaterContact(Primitive, Settings, SplatPositionWS, SplatSizeWS))
+			{
+				continue;
+			}
+
+			SplatPositions.Add(SplatPositionWS);
+			SplatSizes.Add(SplatSizeWS);
 		}
-
-		FInteractionPrimitiveRuntimeState& State = InteractionPrimitiveStates.FindOrAdd(FObjectKey(Primitive));
-
-		State.PreviousLocationWS = State.CurrentLocationWS;
-		State.CurrentLocationWS = Primitive->Bounds.Origin;
-		State.BoundsWS = Primitive->Bounds;
-
-		const FVector ComponentVelocityWS = Primitive->GetComponentVelocity();
-		const FVector DerivedVelocityWS = State.bHasPreviousLocation && DeltaTimeSeconds > SMALL_NUMBER ? (State.CurrentLocationWS - State.PreviousLocationWS) / DeltaTimeSeconds : FVector::ZeroVector;
-
-		State.VelocityWS = ComponentVelocityWS.SizeSquared() > DerivedVelocityWS.SizeSquared() ? ComponentVelocityWS : DerivedVelocityWS;
-		State.bHasPreviousLocation = true;
 	}
-}
 
-const FInteractionPrimitiveRuntimeState* UGroundInteractionWorldSubsystem::FindInteractionPrimitiveState(const UPrimitiveComponent* Primitive) const
-{
-	if (!Primitive)
+	check(PendingWaterSplatPositions.Num() == PendingWaterSplatSizes.Num());
+
+	SplatPositions.Append(PendingWaterSplatPositions);
+	SplatSizes.Append(PendingWaterSplatSizes);
+
+	if (SplatPositions.IsEmpty())
 	{
-		return nullptr;
+		return;
 	}
 
-	return InteractionPrimitiveStates.Find(FObjectKey(Primitive));
+	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayPosition(WaterSplatComponent, GroundInteractionNiagaraParameters::SplatPositions, SplatPositions);
+
+	UNiagaraDataInterfaceArrayFunctionLibrary::SetNiagaraArrayVector2D(WaterSplatComponent, GroundInteractionNiagaraParameters::SplatSizes, SplatSizes);
+
+	const float SplatLifetimeSeconds = Settings->GetWaterInteractionUpdateIntervalSeconds() * 1.1f;
+	WaterSplatComponent->SetVariableFloat(GroundInteractionNiagaraParameters::SplatLifetime, SplatLifetimeSeconds);
+	WaterSplatComponent->SetVariableInt(GroundInteractionNiagaraParameters::SplatCount, SplatPositions.Num());
+
+	PendingWaterSplatPositions.Reset();
+	PendingWaterSplatSizes.Reset();
 }
 
-bool UGroundInteractionWorldSubsystem::CanWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds) const
+FVector UGroundInteractionWorldSubsystem::GetWaterSplatVelocityWS(const UPrimitiveComponent* Primitive) const
 {
-	check(IsInGameThread());
+	if (!IsValid(Primitive))
+	{
+		return FVector::ZeroVector;
+	}
 
-	const FInteractionPrimitiveRuntimeState* State = FindInteractionPrimitiveState(Primitive);
-	if (!State)
+	const auto IsUsableVelocity = [](const FVector& VelocityWS)
+	{
+		return !VelocityWS.ContainsNaN() && !VelocityWS.IsNearlyZero();
+	};
+
+	FVector VelocityWS = Primitive->GetComponentVelocity();
+	if (IsUsableVelocity(VelocityWS))
+	{
+		return VelocityWS;
+	}
+
+	for (const USceneComponent* AttachParent = Primitive->GetAttachParent(); AttachParent; AttachParent = AttachParent->GetAttachParent())
+	{
+		VelocityWS = AttachParent->GetComponentVelocity();
+		if (IsUsableVelocity(VelocityWS))
+		{
+			return VelocityWS;
+		}
+	}
+
+	if (const AActor* Owner = Primitive->GetOwner())
+	{
+		VelocityWS = Owner->GetVelocity();
+		if (IsUsableVelocity(VelocityWS))
+		{
+			return VelocityWS;
+		}
+	}
+
+	return FVector::ZeroVector;
+}
+
+bool UGroundInteractionWorldSubsystem::TryCalculateWaterContact(const UPrimitiveComponent* Primitive, const UGroundInteractionSettings* Settings, FVector& OutPositionWS, FVector2D& OutSizeWS) const
+{
+	if (!IsValid(Primitive) || !Settings)
 	{
 		return false;
 	}
 
-	return State->LastWaterPulseFrameNumber == GFrameCounter || CurrentTimeSeconds >= State->NextWaterPulseTimeSeconds;
-}
-
-void UGroundInteractionWorldSubsystem::ConsumeWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds, float PulseIntervalSeconds, float PulseRandomIntervalSeconds)
-{
-	check(IsInGameThread());
-
-	if (!Primitive)
+	UWorld* World = GetWorld();
+	if (!World)
 	{
-		return;
+		return false;
 	}
 
-	FInteractionPrimitiveRuntimeState* State = InteractionPrimitiveStates.Find(FObjectKey(Primitive));
-	if (!State || State->LastWaterPulseFrameNumber == GFrameCounter)
+	FWaterBodyManager* WaterBodyManager = UWaterSubsystem::GetWaterBodyManager(World);
+	if (!WaterBodyManager)
 	{
-		return;
+		return false;
 	}
 
-	const float SafePulseIntervalSeconds = FMath::Max(PulseIntervalSeconds, 0.001f);
-	const float SafePulseRandomIntervalSeconds = FMath::Max(PulseRandomIntervalSeconds, 0.0f);
+	const FBoxSphereBounds PrimitiveBoundsWS = Primitive->Bounds;
+	const double SurfaceDistanceTolerance = FMath::Max(static_cast<double>(Settings->WaterInteractionSurfaceDistanceTolerance), 0.0);
+	const double QueryDistance = FMath::Max(PrimitiveBoundsWS.SphereRadius, 0.0) + SurfaceDistanceTolerance;
+	const FBox PrimitiveBounds = PrimitiveBoundsWS.GetBox();
+	bool bContactFound = false;
 
-	State->LastWaterPulseFrameNumber = GFrameCounter;
-	State->NextWaterPulseTimeSeconds = CurrentTimeSeconds + SafePulseIntervalSeconds + FMath::FRandRange(0.0f, SafePulseRandomIntervalSeconds);
+	WaterBodyManager->ForEachWaterBodyComponent(
+		[&](UWaterBodyComponent* WaterBodyComponent)
+		{
+			if (!IsValid(WaterBodyComponent) || !WaterBodyComponent->IsRegistered())
+			{
+				return true;
+			}
+
+			if (!WaterBodyComponent->Bounds.GetBox().ExpandBy(QueryDistance).Intersect(PrimitiveBounds))
+			{
+				return true;
+			}
+
+			const EWaterBodyQueryFlags QueryFlags = EWaterBodyQueryFlags::ComputeLocation | EWaterBodyQueryFlags::ComputeNormal;
+			const TValueOrError<FWaterBodyQueryResult, EWaterBodyQueryError> QueryResult =
+				WaterBodyComponent->TryQueryWaterInfoClosestToWorldLocation(PrimitiveBoundsWS.Origin, QueryFlags);
+
+			if (!QueryResult.HasValue())
+			{
+				return true;
+			}
+
+			const FWaterBodyQueryResult& Query = QueryResult.GetValue();
+			if (Query.IsInExclusionVolume())
+			{
+				return true;
+			}
+
+			FVector SurfaceNormalWS = Query.GetWaterSurfaceNormal();
+			if (!SurfaceNormalWS.Normalize())
+			{
+				SurfaceNormalWS = FVector::UpVector;
+			}
+
+			const double SignedDistanceToSurface = FVector::DotProduct(
+				PrimitiveBoundsWS.Origin - Query.GetWaterSurfaceLocation(),
+				SurfaceNormalWS);
+
+			if (FMath::Abs(SignedDistanceToSurface) > QueryDistance)
+			{
+				return true;
+			}
+
+			OutPositionWS = Query.GetWaterSurfaceLocation();
+			OutSizeWS = FVector2D(PrimitiveBoundsWS.BoxExtent.X * 2.0, PrimitiveBoundsWS.BoxExtent.Y * 2.0);
+			bContactFound = true;
+
+			return false;
+		});
+
+	return bContactFound;
 }
 
 void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
@@ -262,7 +417,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	}
 
 	TArray<FSoftObjectPath> AssetsToLoad;
-	AssetsToLoad.Reserve(7);
+	AssetsToLoad.Reserve(8);
 
 	AssetsToLoad.Add(GroundInteractionAssetPaths::DepthRT);
 	AssetsToLoad.Add(GroundInteractionAssetPaths::FadeRT);
@@ -273,6 +428,7 @@ void UGroundInteractionWorldSubsystem::BeginAsyncLoadAssets()
 	if (Settings->bEnableWaterInteraction)
 	{
 		AssetsToLoad.Add(GroundInteractionAssetPaths::WaterHeightRT);
+		AssetsToLoad.Add(GroundInteractionAssetPaths::WaterSplatSystem);
 	}
 
 	if (!Settings->MaterialParameterCollection.IsNull())
@@ -304,12 +460,20 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 	}
 
 	WaterHeightRT = nullptr;
+	WaterSplatSystem = nullptr;
+
 	if (Settings->bEnableWaterInteraction)
 	{
 		WaterHeightRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::WaterHeightRT.ResolveObject());
 		if (!WaterHeightRT)
 		{
 			WaterHeightRT = Cast<UTextureRenderTarget2D>(GroundInteractionAssetPaths::WaterHeightRT.TryLoad());
+		}
+
+		WaterSplatSystem = Cast<UNiagaraSystem>(GroundInteractionAssetPaths::WaterSplatSystem.ResolveObject());
+		if (!WaterSplatSystem)
+		{
+			WaterSplatSystem = Cast<UNiagaraSystem>(GroundInteractionAssetPaths::WaterSplatSystem.TryLoad());
 		}
 	}
 
@@ -349,7 +513,10 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 		CapsuleMesh != nullptr &&
 		MaterialParameterCollection != nullptr;
 
-	bWaterAssetsReady = Settings->bEnableWaterInteraction && WaterHeightRT != nullptr;
+	bWaterAssetsReady =
+		Settings->bEnableWaterInteraction &&
+		WaterHeightRT != nullptr &&
+		WaterSplatSystem != nullptr;
 
 	if (!bAssetsReady)
 	{
@@ -358,6 +525,7 @@ void UGroundInteractionWorldSubsystem::OnAssetsLoaded()
 
 	CreateOrUpdateRendererActor();
 	CreateOrUpdateGroundRendererComponent();
+	CreateOrUpdateWaterSplatComponent();
 	CreateOrUpdateWaterRendererComponent();
 
 	for (const TWeakObjectPtr<UGroundInteractionTargetComponent>& TargetWeak : RegisteredTargets)
@@ -388,7 +556,6 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateRendererActor()
 
 		if (RendererActor)
 		{
-			RendererActor->SetActorHiddenInGame(true);
 			RendererActor->SetActorEnableCollision(false);
 		}
 	}
@@ -436,6 +603,41 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateGroundRendererComponent()
 	RendererComponent->InitializeRenderer(this, DepthRT, FadeRT, MaterialParameterCollection);
 }
 
+void UGroundInteractionWorldSubsystem::CreateOrUpdateWaterSplatComponent()
+{
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+	if (!Settings || !Settings->bEnableWaterInteraction || !bWaterAssetsReady || !RendererActor || !RendererRootComponent || !WaterSplatSystem)
+	{
+		return;
+	}
+
+	if (WaterSplatComponent)
+	{
+		return;
+	}
+
+	WaterSplatComponent = NewObject<UNiagaraComponent>(RendererActor, TEXT("WaterSplatComponent"), RF_Transient);
+	if (!WaterSplatComponent)
+	{
+		return;
+	}
+
+	WaterSplatComponent->SetAutoActivate(false);
+	WaterSplatComponent->SetAsset(WaterSplatSystem);
+	WaterSplatComponent->SetupAttachment(RendererRootComponent);
+	RendererActor->AddInstanceComponent(WaterSplatComponent);
+
+	WaterSplatComponent->SetAutoDestroy(false);
+	WaterSplatComponent->SetOnlyOwnerSee(true);
+	WaterSplatComponent->SetCastShadow(false);
+	WaterSplatComponent->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	WaterSplatComponent->SetGenerateOverlapEvents(false);
+	WaterSplatComponent->RegisterComponent();
+
+	WaterSplatComponent->SetVariableInt(GroundInteractionNiagaraParameters::SplatCount, 0);
+	WaterSplatComponent->Activate(false);
+}
+
 void UGroundInteractionWorldSubsystem::CreateOrUpdateWaterRendererComponent()
 {
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
@@ -450,7 +652,7 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateWaterRendererComponent()
 		return;
 	}
 
-	if (!RendererActor || !RendererRootComponent)
+	if (!RendererActor || !RendererRootComponent || !IsValid(WaterSplatComponent) || !WaterSplatComponent->IsRegistered())
 	{
 		return;
 	}
@@ -469,7 +671,7 @@ void UGroundInteractionWorldSubsystem::CreateOrUpdateWaterRendererComponent()
 		WaterRendererComponent->RegisterComponent();
 	}
 
-	WaterRendererComponent->InitializeRenderer(this, WaterHeightRT, MaterialParameterCollection);
+	WaterRendererComponent->InitializeRenderer(WaterSplatComponent, WaterHeightRT, MaterialParameterCollection);
 }
 
 void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
@@ -478,6 +680,12 @@ void UGroundInteractionWorldSubsystem::DestroyRendererComponent()
 	{
 		WaterRendererComponent->DestroyComponent();
 		WaterRendererComponent = nullptr;
+	}
+
+	if (WaterSplatComponent)
+	{
+		WaterSplatComponent->DestroyComponent();
+		WaterSplatComponent = nullptr;
 	}
 
 	if (RendererComponent)

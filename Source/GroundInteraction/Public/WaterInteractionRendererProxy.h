@@ -5,6 +5,7 @@
 #include "PrimitiveComponentId.h"
 #include "RenderDeferredCleanup.h"
 #include "SceneView.h"
+#include "SceneViewOwner.h"
 
 class GROUNDINTERACTION_API FWaterInteractionRendererProxy final : public FDeferredCleanupInterface
 {
@@ -20,6 +21,7 @@ public:
 	void Render(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily);
 	void QueueWaterInteractionDepthPass_GameThread(
 		FSceneViewFamily& InViewFamily,
+		const FSceneViewOwner& ViewOwner,
 		const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
 		const FVector& BottomInteractionCenterWS,
 		const FIntPoint& DepthRenderTargetSize,
@@ -67,16 +69,6 @@ private:
 	int32 GetNextHeightTextureId() const
 	{
 		return NextHeightTextureId;
-	}
-
-	void AdvanceAfterScrolling()
-	{
-		AdvanceHeightTextureRoles();
-	}
-
-	void AdvanceAfterSimulation()
-	{
-		AdvanceHeightTextureRoles();
 	}
 
 	void ResetHeightTextureRoles()

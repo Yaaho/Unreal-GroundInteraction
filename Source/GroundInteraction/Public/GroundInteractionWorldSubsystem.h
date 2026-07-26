@@ -4,28 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
-#include "UObject/ObjectKey.h"
 #include "GroundInteractionWorldSubsystem.generated.h"
 
 class FGroundInteractionSceneViewExtension;
 class USceneComponent;
 class UPrimitiveComponent;
 class UGroundInteractionRendererComponent;
+class UGroundInteractionSettings;
 class UGroundInteractionTargetComponent;
+class UNiagaraComponent;
+class UNiagaraSystem;
 class UWaterInteractionRendererComponent;
 struct FStreamableHandle;
-
-struct FInteractionPrimitiveRuntimeState
-{
-	FVector PreviousLocationWS = FVector::ZeroVector;
-	FVector CurrentLocationWS = FVector::ZeroVector;
-	FVector VelocityWS = FVector::ZeroVector;
-	FBoxSphereBounds BoundsWS = FBoxSphereBounds(ForceInit);
-	bool bHasPreviousLocation = false;
-
-	double NextWaterPulseTimeSeconds = 0.0;
-	uint64 LastWaterPulseFrameNumber = MAX_uint64;
-};
 
 UCLASS()
 class GROUNDINTERACTION_API UGroundInteractionWorldSubsystem : public UTickableWorldSubsystem
@@ -45,16 +35,13 @@ public:
 	
 	void RegisterInteractionPrimitive(UPrimitiveComponent* Primitive);
 	void UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive);
+
+	void AddWaterSplat(const FVector& PositionWS, const FVector2D& SizeWS);
 	
 	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& GetInteractionPrimitives() const
 	{
 		return InteractionPrimitives;
 	}
-
-	void UpdateInteractionPrimitiveStates_GameThread(double CurrentTimeSeconds);
-	const FInteractionPrimitiveRuntimeState* FindInteractionPrimitiveState(const UPrimitiveComponent* Primitive) const;
-	bool CanWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds) const;
-	void ConsumeWaterInteractionPulse_GameThread(const UPrimitiveComponent* Primitive, double CurrentTimeSeconds, float PulseIntervalSeconds, float PulseRandomIntervalSeconds);
 	
 	UGroundInteractionRendererComponent* GetRendererComponent() const
 	{
@@ -122,8 +109,13 @@ private:
 
 	void CreateOrUpdateRendererActor();
 	void CreateOrUpdateGroundRendererComponent();
+	void CreateOrUpdateWaterSplatComponent();
 	void CreateOrUpdateWaterRendererComponent();
 	void DestroyRendererComponent();
+
+	void UpdateWaterSplats();
+	FVector GetWaterSplatVelocityWS(const UPrimitiveComponent* Primitive) const;
+	bool TryCalculateWaterContact(const UPrimitiveComponent* Primitive, const UGroundInteractionSettings* Settings, FVector& OutPositionWS, FVector2D& OutSizeWS) const;
 	
 	bool GetPlayerCameraLocation(FVector& OutCameraLocationWS) const;
 
@@ -134,9 +126,8 @@ private:
 	UPROPERTY(Transient)
 	TArray<TWeakObjectPtr<UPrimitiveComponent>> InteractionPrimitives;
 
-	TMap<FObjectKey, FInteractionPrimitiveRuntimeState> InteractionPrimitiveStates;
-	uint64 LastPrimitiveStateUpdateFrameNumber = MAX_uint64;
-	double LastPrimitiveStateUpdateTimeSeconds = -1.0;
+	TArray<FVector> PendingWaterSplatPositions;
+	TArray<FVector2D> PendingWaterSplatSizes;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> DepthRT = nullptr;
@@ -146,6 +137,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> WaterHeightRT = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UNiagaraSystem> WaterSplatSystem = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CubeMesh = nullptr;
@@ -167,6 +161,9 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UGroundInteractionRendererComponent> RendererComponent = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UNiagaraComponent> WaterSplatComponent = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UWaterInteractionRendererComponent> WaterRendererComponent = nullptr;

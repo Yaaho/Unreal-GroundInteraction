@@ -2,17 +2,13 @@
 
 #include "CoreMinimal.h"
 #include "Components/SceneComponent.h"
-#include "PrimitiveComponentId.h"
 #include "WaterInteractionRendererComponent.generated.h"
 
 class FWaterInteractionRendererProxy;
 class FSceneViewFamily;
-class UGroundInteractionSettings;
-class UGroundInteractionWorldSubsystem;
 class UMaterialParameterCollection;
-class UPrimitiveComponent;
+class UNiagaraComponent;
 class UTextureRenderTarget2D;
-struct FInteractionPrimitiveRuntimeState;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class GROUNDINTERACTION_API UWaterInteractionRendererComponent : public USceneComponent
@@ -28,7 +24,7 @@ public:
 	virtual void SendRenderTransform_Concurrent() override;
 
 	void InitializeRenderer(
-		UGroundInteractionWorldSubsystem* InSubsystem,
+		UNiagaraComponent* InWaterSplatComponent,
 		UTextureRenderTarget2D* InHeightRT,
 		UMaterialParameterCollection* InMaterialParameterCollection);
 
@@ -40,8 +36,6 @@ private:
 	void UpdateRenderProxyTransform();
 	void ApplyOutputRenderTarget();
 	void UpdateMPC(const FVector& BottomInteractionCenterWS, const FVector& InteractionExtentWS) const;
-	void BuildWaterDepthPassShowOnlyPrimitives(TSet<FPrimitiveComponentId>& OutShowOnlyPrimitives, TArray<UPrimitiveComponent*>& OutSelectedPrimitives, UGroundInteractionWorldSubsystem* Subsystem, const UGroundInteractionSettings* Settings, const FVector& InteractionCenterWS, const FVector& InteractionExtentWS, double CurrentTimeSeconds) const;
-	bool IsPrimitiveNearWaterSurface(const FInteractionPrimitiveRuntimeState& PrimitiveState, const UGroundInteractionSettings* Settings) const;
 
 	bool InitOutputRenderTarget(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const;
 
@@ -52,7 +46,7 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialParameterCollection> MaterialParameterCollection = nullptr;
 
-	TWeakObjectPtr<UGroundInteractionWorldSubsystem> OwnerSubsystem;
+	TWeakObjectPtr<UNiagaraComponent> WaterSplatComponent;
 
 	FWaterInteractionRendererProxy* RenderProxy = nullptr;
 	FSceneInterface* RegisteredScene = nullptr;

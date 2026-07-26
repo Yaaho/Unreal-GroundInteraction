@@ -14,13 +14,6 @@ namespace GroundInteractionCommon
 		return Name;
 	}
 
-	FORCEINLINE const FName& GetWaterDepthPassTypeName()
-	{
-		// Must match IMPLEMENT_CUSTOM_RENDER_PASS(FWaterInteractionDepthPass).
-		static const FName Name(TEXT("FWaterInteractionDepthPass"));
-		return Name;
-	}
-
 	FORCEINLINE FIntPoint MakeSafeRenderTargetSize(const FIntPoint& InSize)
 	{
 		return FIntPoint(FMath::Max(InSize.X, 1), FMath::Max(InSize.Y, 1));

@@ -357,7 +357,7 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 					RenderTargetSize,
 					ScrollPixels);
 
-				AdvanceAfterScrolling();
+				AdvanceHeightTextureRoles();
 				PreviousSnappedLocation = CurrentSnappedLocationXY;
 			}
 		}
@@ -369,16 +369,16 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 
 	// ---- Water Height Simulation Pass 실행 ----
 	// AddWaterHeightSimulationPass(...);
-	// AdvanceAfterSimulation();
+	// AdvanceHeightTextureRoles();
 
 	CopyCurrentHeightToOutput(GraphBuilder);
 }
 
-void FWaterInteractionRendererProxy::QueueWaterInteractionDepthPass_GameThread(FSceneViewFamily& InViewFamily, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& BottomInteractionCenterWS, const FIntPoint& DepthRenderTargetSize, float PulseStrength)
+void FWaterInteractionRendererProxy::QueueWaterInteractionDepthPass_GameThread(FSceneViewFamily& InViewFamily, const FSceneViewOwner& ViewOwner, const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives, const FVector& BottomInteractionCenterWS, const FIntPoint& DepthRenderTargetSize, float PulseStrength)
 {
 	check(IsInGameThread());
 
-	if (!InViewFamily.Scene || InShowOnlyPrimitives.Num() <= 0)
+	if (!InViewFamily.Scene || !ViewOwner.IsSet() || InShowOnlyPrimitives.Num() <= 0)
 	{
 		return;
 	}
@@ -395,7 +395,7 @@ void FWaterInteractionRendererProxy::QueueWaterInteractionDepthPass_GameThread(F
 	PassInput.ViewRotationMatrix = PassInput.ViewRotationMatrix.RemoveTranslation();
 	PassInput.ViewRotationMatrix.RemoveScaling();
 	PassInput.ProjectionMatrix = BuildBottomUpOrthoProjection(HalfExtentX, HalfExtentY, MaxDepth);
-	PassInput.ViewActor = nullptr;
+	PassInput.ViewActor = ViewOwner;
 	PassInput.ShowOnlyPrimitives = InShowOnlyPrimitives;
 	PassInput.bUseMainViewFamilyShowFlags = false;
 	PassInput.EngineShowFlags = FEngineShowFlags(ESFIM_Game);

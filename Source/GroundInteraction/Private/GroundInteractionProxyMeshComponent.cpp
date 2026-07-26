@@ -22,15 +22,13 @@ public:
 		FPrimitiveViewRelevance Result = FStaticMeshSceneProxy::GetViewRelevance(View);
 
 		bool bIsGroundInteractionDepthPass = false;
-		bool bIsWaterInteractionDepthPass = false;
 		if (View && View->CustomRenderPass)
 		{
 			const FName DepthPassTypeName = View->CustomRenderPass->GetTypeName();
 			bIsGroundInteractionDepthPass = DepthPassTypeName == GroundInteractionCommon::GetGroundDepthPassTypeName();
-			bIsWaterInteractionDepthPass = DepthPassTypeName == GroundInteractionCommon::GetWaterDepthPassTypeName();
 		}
 
-		Result.bDrawRelevance = Result.bDrawRelevance && (bIsGroundInteractionDepthPass || bIsWaterInteractionDepthPass);
+		Result.bDrawRelevance = Result.bDrawRelevance && bIsGroundInteractionDepthPass;
 		Result.bShadowRelevance = false;
 
 		return Result;

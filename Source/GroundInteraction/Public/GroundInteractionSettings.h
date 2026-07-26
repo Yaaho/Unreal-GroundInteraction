@@ -64,17 +64,14 @@ public:
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="120"))
 	int32 WaterInteractionUpdateRate = 60;
 
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
+	float WaterInteractionSplatSpawnProbability = 0.1f;
+
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionMinVelocity = 30.0f;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionSurfaceDistanceTolerance = 10.0f;
-
-	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.001", UIMin="0.01", UIMax="1.0"))
-	float WaterInteractionPulseInterval = 0.1f;
-
-	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0", UIMax="1.0"))
-	float WaterInteractionPulseRandomInterval = 0.0f;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionPulseStrength = 1.0f;
