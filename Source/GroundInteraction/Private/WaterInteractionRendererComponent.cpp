@@ -68,14 +68,6 @@ void UWaterInteractionRendererComponent::UpdateRenderProxyTransform()
 		return;
 	}
 
-	const bool bRenderTargetSizeChanged = RenderTargetSize != SafeRenderTargetSize;
-
-	if (bRenderTargetSizeChanged)
-	{
-		RenderTargetSize = SafeRenderTargetSize;
-		ApplyOutputRenderTarget();
-	}
-
 	const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->WaterInteractionWorldExtent);
 	const FVector RawCenterWS = GetComponentLocation();
 	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(RawCenterWS, InteractionExtentWS, SafeRenderTargetSize, Settings->WaterInteractionLocationSnapCellCount);
@@ -83,7 +75,7 @@ void UWaterInteractionRendererComponent::UpdateRenderProxyTransform()
 	FWaterInteractionRendererProxy* ProxyForCommand = RenderProxy;
 
 	ENQUEUE_RENDER_COMMAND(WaterInteractionUpdateRendererProxyLocation)(
-		[ProxyForCommand, SnappedCenterWS, SafeRenderTargetSize, bRenderTargetSizeChanged](FRHICommandListImmediate& RHICmdList)
+		[ProxyForCommand, SnappedCenterWS](FRHICommandListImmediate& RHICmdList)
 		{
 			if (!ProxyForCommand)
 			{
@@ -91,8 +83,6 @@ void UWaterInteractionRendererComponent::UpdateRenderProxyTransform()
 			}
 
 			ProxyForCommand->CurrentSnappedLocation = SnappedCenterWS;
-			ProxyForCommand->RenderTargetSize = SafeRenderTargetSize;
-			ProxyForCommand->bRenderTargetChanged |= bRenderTargetSizeChanged;
 		});
 
 	const FVector BottomInteractionCenterWS = GroundInteractionCommon::GetBottomInteractionCenterWS(SnappedCenterWS, InteractionExtentWS);
@@ -147,15 +137,39 @@ void UWaterInteractionRendererComponent::UpdateWaterInteractionDepth_GameThread(
 
 	const FIntPoint NewRenderTargetSize = Settings->GetWaterInteractionRenderTargetSize();
 
+	bool bRenderTargetChanged = false;
+
 	if (RenderTargetSize != NewRenderTargetSize)
 	{
+		RenderTargetSize = NewRenderTargetSize;
+		ApplyOutputRenderTarget();
+
+		bRenderTargetChanged = true;
+
 		DepthUpdateAccumulatorSeconds = 0.0f;
-		UpdateRenderProxyTransform();
 	}
 
 	if (RenderTargetSize.X <= 0 || RenderTargetSize.Y <= 0)
 	{
 		return;
+	}
+
+	if (bRenderTargetChanged)
+	{
+		FWaterInteractionRendererProxy* ProxyForCommand = RenderProxy;
+		const FIntPoint RenderTargetSizeForCommand = RenderTargetSize;
+
+		ENQUEUE_RENDER_COMMAND(WaterInteractionUpdateRendererProxyRenderTargetSize)(
+			[ProxyForCommand, RenderTargetSizeForCommand](FRHICommandListImmediate& RHICmdList)
+			{
+				if (!ProxyForCommand)
+				{
+					return;
+				}
+
+				ProxyForCommand->RenderTargetSize = RenderTargetSizeForCommand;
+				ProxyForCommand->bRenderTargetChanged = true;
+			});
 	}
 
 	if (Settings->WaterInteractionPulseStrength <= 0.0f)

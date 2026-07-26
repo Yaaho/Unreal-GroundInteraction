@@ -154,8 +154,6 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 
 		// RT size 변경 시 depth update accumulator 초기화
 		DepthUpdateAccumulatorSeconds = 0.0f;
-
-		UpdateRenderProxyTransform();
 	}
 
 	if (RenderTargetSize.X <= 0 || RenderTargetSize.Y <= 0)
