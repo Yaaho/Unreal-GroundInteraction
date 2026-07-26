@@ -12,11 +12,6 @@
 #include "PhysicsEngine/SkeletalBodySetup.h"
 #include "PhysicsEngine/PhysicsAsset.h"
 
-bool IsGroundInteractionShape(const FKShapeElem& ShapeElem)
-{
-	return ShapeElem.GetName().ToString().StartsWith(TEXT("GI_"));
-}
-
 void UGroundInteractionTargetComponent::OnRegister()
 {
 	Super::OnRegister();
@@ -183,11 +178,6 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 		for (const FKBoxElem& BoxElem : AggGeom.BoxElems)
 		{
-			if (!IsGroundInteractionShape(BoxElem))
-			{
-				continue;
-			}
-
 			const FTransform RelativeTransform(BoxElem.Rotation.Quaternion(), BoxElem.Center, FVector::OneVector);
 			const FVector DesiredWorldSize(BoxElem.X, BoxElem.Y, BoxElem.Z);
 
@@ -206,11 +196,6 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 		for (const FKSphereElem& SphereElem : AggGeom.SphereElems)
 		{
-			if (!IsGroundInteractionShape(SphereElem))
-			{
-				continue;
-			}
-
 			const FTransform RelativeTransform(FQuat::Identity, SphereElem.Center, FVector::OneVector);
 			const float Diameter = SphereElem.Radius * 2.0f;
 			const FVector DesiredWorldSize(Diameter, Diameter, Diameter);
@@ -230,11 +215,6 @@ void UGroundInteractionTargetComponent::BuildProxies(
 
 		for (const FKSphylElem& SphylElem : AggGeom.SphylElems)
 		{
-			if (!IsGroundInteractionShape(SphylElem))
-			{
-				continue;
-			}
-
 			const FTransform RelativeTransform(SphylElem.Rotation.Quaternion(), SphylElem.Center, FVector::OneVector);
 
 			const float Diameter = SphylElem.Radius * 2.0f;
