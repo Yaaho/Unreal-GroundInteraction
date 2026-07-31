@@ -2,10 +2,9 @@
 
 #include "CoreMinimal.h"
 #include "GroundInteractionRendering.h"
-#include "PrimitiveComponentId.h"
+#include "WaterInteractionCommon.h"
 #include "RenderDeferredCleanup.h"
 #include "SceneView.h"
-#include "SceneViewOwner.h"
 
 class GROUNDINTERACTION_API FWaterInteractionRendererProxy final : public FDeferredCleanupInterface
 {
@@ -14,47 +13,28 @@ public:
 		FTextureReferenceRHIRef InHeightTextureReferenceRHI,
 		FIntVector InNumCell,
 		FVector InCellSpacing,
-		const FVector& InInteractionExtentWS);
+		const FVector& InInteractionExtentWS,
+		float InWaterInteractionPulseStrength);
 	
 	virtual ~FWaterInteractionRendererProxy() override = default;
 
 	void Render(FRDGBuilder& GraphBuilder, FSceneViewFamily& InViewFamily);
-	void QueueWaterInteractionDepthPass_GameThread(
-		FSceneViewFamily& InViewFamily,
-		const FSceneViewOwner& ViewOwner,
-		const TSet<FPrimitiveComponentId>& InShowOnlyPrimitives,
-		const FVector& BottomInteractionCenterWS,
-		const FIntPoint& DepthRenderTargetSize,
-		float PulseStrength);
 	void Release();
 
 	static void RegisterProxy(FSceneInterface* InScene, FWaterInteractionRendererProxy* InProxy);
 	static void UnregisterProxy(FSceneInterface* InScene, FWaterInteractionRendererProxy* InProxy);
 	static TArray<FWaterInteractionRendererProxy*> GetProxies(FSceneInterface* InScene);
 
-	void ApplyWaterImpulse(
-		FRDGBuilder& GraphBuilder,
-		FRDGTextureRef DepthPassTexture,
-		const FIntPoint& PassRenderTargetSize,
-		float PassMaxSceneDepth,
-		float PassSceneDepthInvalidEpsilon,
-		const FVector& PassBottomInteractionCenterWS,
-		float PulseStrength,
-		ERHIFeatureLevel::Type FeatureLevel);
-
 public:
 	FVector CurrentSnappedLocation = FVector::ZeroVector;
 	FIntPoint RenderTargetSize = FIntPoint(512, 512);
 	bool bRenderTargetChanged = false;
+	TArray<FWaterSplat> PendingWaterSplats;
 
 private:
 	void CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll);
 	void ResetHeightTransientRefs();
 	void CopyCurrentHeightToOutput(FRDGBuilder& GraphBuilder);
-	FVector GetBottomInteractionCenterWS() const;
-	float GetMaxSceneDepth() const;
-	float GetSceneDepthInvalidEpsilon() const;
-	static FMatrix BuildBottomUpOrthoProjection(float HalfExtentX, float HalfExtentY, float MaxDepth);
 
 	int32 GetPreviousHeightTextureId() const
 	{
@@ -96,6 +76,7 @@ private:
 	bool bHasPreviousLocation = false;
 
 	FVector InteractionExtentWS = FVector(1000.0f, 1000.0f, 1000.0f);
+	float WaterInteractionPulseStrength = 1.0f;
 
 	FPlaneTexture HeightTextures[3];
 

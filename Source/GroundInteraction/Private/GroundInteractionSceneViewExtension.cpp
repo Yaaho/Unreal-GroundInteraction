@@ -68,7 +68,7 @@ void FGroundInteractionSceneViewExtension::BeginRenderViewFamily(FSceneViewFamil
 
 	if (UWaterInteractionRendererComponent* WaterRendererComponent = Subsystem->GetWaterRendererComponent())
 	{
-		WaterRendererComponent->UpdateWaterInteractionDepth_GameThread(InViewFamily);
+		WaterRendererComponent->UpdateWaterInteraction_GameThread(InViewFamily);
 	}
 }
 

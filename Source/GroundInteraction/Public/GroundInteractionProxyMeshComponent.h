@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/StaticMeshComponent.h"
+#include "WaterInteractionCommon.h"
 #include "GroundInteractionProxyMeshComponent.generated.h"
 
 UCLASS(ClassGroup=(Custom))
@@ -16,4 +17,17 @@ public:
 
 	virtual FPrimitiveSceneProxy* CreateSceneProxy() override;
 	virtual bool IsHLODRelevant() const override { return false; }
+
+	void SetWaterSplatShape(EWaterSplatShape InShape)
+	{
+		WaterSplatShape = InShape;
+	}
+
+	EWaterSplatShape GetWaterSplatShape() const
+	{
+		return WaterSplatShape;
+	}
+
+private:
+	EWaterSplatShape WaterSplatShape = EWaterSplatShape::Sphere;
 };

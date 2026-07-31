@@ -24,10 +24,6 @@
 		{
 			"Name": "Water",
 			"Enabled": true
-		},
-		{
-			"Name": "Niagara",
-			"Enabled": true
 		}
 	]
 }

@@ -43,7 +43,6 @@ public class GroundInteraction : ModuleRules
 				"Renderer", // 렌더링 관련 필수 모듈 (SVE, RDG)
 				"RHI",
 				"Water",
-				"Niagara",
 				"PhysicsCore", // Physics Asset body shape 을 사용하기 위해 필요
 				"DeveloperSettings", // 플러그인 설정을 프로젝트 세팅 창에 노출하기 위해 필요
 				"Projects" // 쉐이더 경로 매핑을 위해 필요 (IPluginManager)

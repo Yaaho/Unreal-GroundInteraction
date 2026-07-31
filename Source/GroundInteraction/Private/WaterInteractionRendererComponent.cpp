@@ -1,17 +1,15 @@
 #include "WaterInteractionRendererComponent.h"
 #include "GroundInteractionCommon.h"
-#include "WaterInteractionRendererProxy.h"
 #include "GroundInteractionSettings.h"
+#include "GroundInteractionWorldSubsystem.h"
+#include "WaterInteractionCommon.h"
+#include "WaterInteractionRendererProxy.h"
 
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
-#include "GameFramework/Actor.h"
 #include "Kismet/KismetMaterialLibrary.h"
-#include "NiagaraComponent.h"
-#include "PrimitiveComponentId.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "SceneViewOwner.h"
 
 UWaterInteractionRendererComponent::UWaterInteractionRendererComponent()
 {
@@ -90,15 +88,17 @@ void UWaterInteractionRendererComponent::UpdateRenderProxyTransform()
 	UpdateMPC(BottomInteractionCenterWS, InteractionExtentWS);
 }
 
-void UWaterInteractionRendererComponent::InitializeRenderer(UNiagaraComponent* InWaterSplatComponent,
-	UTextureRenderTarget2D* InHeightRT, UMaterialParameterCollection* InMaterialParameterCollection)
+void UWaterInteractionRendererComponent::InitializeRenderer(
+	UGroundInteractionWorldSubsystem* InSubsystem,
+	UTextureRenderTarget2D* InHeightRT,
+	UMaterialParameterCollection* InMaterialParameterCollection)
 {
-	WaterSplatComponent = InWaterSplatComponent;
+	OwnerSubsystem = InSubsystem;
 	HeightRT = InHeightRT;
 	MaterialParameterCollection = InMaterialParameterCollection;
 
 	RenderTargetSize = FIntPoint::ZeroValue;
-	DepthUpdateAccumulatorSeconds = 0.0f;
+	UpdateAccumulatorSeconds = 0.0f;
 
 	if (IsRegistered())
 	{
@@ -109,7 +109,7 @@ void UWaterInteractionRendererComponent::InitializeRenderer(UNiagaraComponent* I
 	UpdateRenderProxyTransform();
 }
 
-void UWaterInteractionRendererComponent::UpdateWaterInteractionDepth_GameThread(FSceneViewFamily& InViewFamily)
+void UWaterInteractionRendererComponent::UpdateWaterInteraction_GameThread(FSceneViewFamily& InViewFamily)
 {
 	check(IsInGameThread());
 
@@ -118,24 +118,23 @@ void UWaterInteractionRendererComponent::UpdateWaterInteractionDepth_GameThread(
 		return;
 	}
 
+	UGroundInteractionWorldSubsystem* Subsystem = OwnerSubsystem.Get();
+
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
-	if (!Settings || !Settings->bEnableWaterInteraction)
+	if (!Settings || !Settings->bEnableWaterInteraction || !Subsystem || !Subsystem->AreWaterAssetsReady())
 	{
 		return;
 	}
 
 	const FIntPoint NewRenderTargetSize = Settings->GetWaterInteractionRenderTargetSize();
-
 	bool bRenderTargetChanged = false;
 
 	if (RenderTargetSize != NewRenderTargetSize)
 	{
 		RenderTargetSize = NewRenderTargetSize;
 		ApplyOutputRenderTarget();
-
 		bRenderTargetChanged = true;
-
-		DepthUpdateAccumulatorSeconds = 0.0f;
+		UpdateAccumulatorSeconds = 0.0f;
 	}
 
 	if (RenderTargetSize.X <= 0 || RenderTargetSize.Y <= 0)
@@ -166,49 +165,67 @@ void UWaterInteractionRendererComponent::UpdateWaterInteractionDepth_GameThread(
 		return;
 	}
 
-	const float DepthUpdateIntervalSeconds = Settings->GetWaterInteractionUpdateIntervalSeconds();
+	const float UpdateIntervalSeconds = Settings->GetWaterInteractionUpdateIntervalSeconds();
 	const float DeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0f);
 
-	DepthUpdateAccumulatorSeconds += DeltaTimeSeconds;
-
-	if (DepthUpdateAccumulatorSeconds < DepthUpdateIntervalSeconds)
+	UpdateAccumulatorSeconds += DeltaTimeSeconds;
+	if (UpdateAccumulatorSeconds < UpdateIntervalSeconds)
 	{
 		return;
 	}
 
-	const int32 DepthUpdateStepCount = FMath::Max(FMath::FloorToInt(DepthUpdateAccumulatorSeconds / DepthUpdateIntervalSeconds), 1);
-
-	DepthUpdateAccumulatorSeconds -= static_cast<float>(DepthUpdateStepCount) * DepthUpdateIntervalSeconds;
-
-	UNiagaraComponent* NiagaraComponent = WaterSplatComponent.Get();
-	if (!IsValid(NiagaraComponent) || !NiagaraComponent->IsRegistered())
-	{
-		return;
-	}
-
-	const AActor* NiagaraOwner = NiagaraComponent->GetOwner();
-	if (!IsValid(NiagaraOwner))
-	{
-		return;
-	}
-
-	const FPrimitiveComponentId NiagaraPrimitiveId = NiagaraComponent->GetPrimitiveSceneId();
-	if (!NiagaraPrimitiveId.IsValid())
-	{
-		return;
-	}
+	const int32 UpdateStepCount = FMath::Max(FMath::FloorToInt(UpdateAccumulatorSeconds / UpdateIntervalSeconds), 1);
+	UpdateAccumulatorSeconds -= static_cast<float>(UpdateStepCount) * UpdateIntervalSeconds;
 
 	const FVector InteractionExtentWS = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->WaterInteractionWorldExtent);
-	const FVector RawCenterWS = GetComponentLocation();
-	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(RawCenterWS, InteractionExtentWS, RenderTargetSize, Settings->WaterInteractionLocationSnapCellCount);
+	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(GetComponentLocation(), InteractionExtentWS, RenderTargetSize, Settings->WaterInteractionLocationSnapCellCount);
 
-	TSet<FPrimitiveComponentId> ShowOnlyPrimitives;
-	ShowOnlyPrimitives.Add(NiagaraPrimitiveId);
+	const FBox InteractionBoundsWS = FBox::BuildAABB(SnappedCenterWS, InteractionExtentWS);
+	const FVector2d SnappedCenterXY(SnappedCenterWS.X, SnappedCenterWS.Y);
 
-	const FVector BottomInteractionCenterWS = GroundInteractionCommon::GetBottomInteractionCenterWS(SnappedCenterWS, InteractionExtentWS);
+	TArray<FWaterSplatGT> WaterSplatsGT = Subsystem->GenerateWaterSplats();
+	TArray<FWaterSplat> WaterSplats;
+	WaterSplats.Reserve(WaterSplatsGT.Num());
 
-	const FSceneViewOwner ViewOwner(NiagaraOwner);
-	RenderProxy->QueueWaterInteractionDepthPass_GameThread(InViewFamily, ViewOwner, ShowOnlyPrimitives, BottomInteractionCenterWS, RenderTargetSize, Settings->WaterInteractionPulseStrength);
+	for (const FWaterSplatGT& WaterSplatGT : WaterSplatsGT)
+	{
+		const double AbsRotationCos = FMath::Abs(static_cast<double>(WaterSplatGT.RotationCos));
+		const double AbsRotationSin = FMath::Abs(static_cast<double>(WaterSplatGT.RotationSin));
+		const FVector2d AxisAlignedHalfSize(AbsRotationCos * WaterSplatGT.HalfSizeXY.X + AbsRotationSin * WaterSplatGT.HalfSizeXY.Y, AbsRotationSin * WaterSplatGT.HalfSizeXY.X + AbsRotationCos * WaterSplatGT.HalfSizeXY.Y);
+		const FVector2d SplatMin = WaterSplatGT.AbsoluteCenterXY - AxisAlignedHalfSize;
+		const FVector2d SplatMax = WaterSplatGT.AbsoluteCenterXY + AxisAlignedHalfSize;
+
+		if (SplatMax.X < InteractionBoundsWS.Min.X || SplatMin.X > InteractionBoundsWS.Max.X || SplatMax.Y < InteractionBoundsWS.Min.Y || SplatMin.Y > InteractionBoundsWS.Max.Y)
+		{
+			continue;
+		}
+
+		const FVector2d RelativeCenterXY = WaterSplatGT.AbsoluteCenterXY - SnappedCenterXY;
+		FWaterSplat& WaterSplat = WaterSplats.AddDefaulted_GetRef();
+		WaterSplat.RelativeCenterXY = FVector2f(static_cast<float>(RelativeCenterXY.X), static_cast<float>(RelativeCenterXY.Y));
+		WaterSplat.HalfSizeXY = FVector2f(static_cast<float>(WaterSplatGT.HalfSizeXY.X), static_cast<float>(WaterSplatGT.HalfSizeXY.Y));
+		WaterSplat.RotationCos = WaterSplatGT.RotationCos;
+		WaterSplat.RotationSin = WaterSplatGT.RotationSin;
+		WaterSplat.ShapeType = WaterSplatGT.ShapeType;
+		WaterSplat.Padding = WaterSplatGT.Padding;
+	}
+
+	if (WaterSplats.IsEmpty())
+	{
+		return;
+	}
+
+	FWaterInteractionRendererProxy* ProxyForCommand = RenderProxy;
+	ENQUEUE_RENDER_COMMAND(WaterInteractionAppendWaterSplats)(
+		[ProxyForCommand, WaterSplatsForCommand = MoveTemp(WaterSplats)](FRHICommandListImmediate& RHICmdList) mutable
+		{
+			if (!ProxyForCommand)
+			{
+				return;
+			}
+			
+			ProxyForCommand->PendingWaterSplats.Append(MoveTemp(WaterSplatsForCommand));
+		});
 }
 
 void UWaterInteractionRendererComponent::CreateRenderProxy()
@@ -240,13 +257,10 @@ void UWaterInteractionRendererComponent::CreateRenderProxy()
 
 	const FVector InteractionExtent = GroundInteractionCommon::MakeSafeInteractionExtent(Settings->WaterInteractionWorldExtent);
 	const FIntVector NumCell(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1), 1);
-	const FVector CellSpacing(
-		FMath::Max(InteractionExtent.X, 1.0f) * 2.0f / float(NumCell.X),
-		FMath::Max(InteractionExtent.Y, 1.0f) * 2.0f / float(NumCell.Y),
-		FMath::Max(InteractionExtent.Z, 1.0f) * 2.0f / float(FMath::Max(NumCell.Z, 1)));
+	const FVector CellSpacing(FMath::Max(InteractionExtent.X, 1.0f) * 2.0f / float(NumCell.X), FMath::Max(InteractionExtent.Y, 1.0f) * 2.0f / float(NumCell.Y), FMath::Max(InteractionExtent.Z, 1.0f) * 2.0f / float(FMath::Max(NumCell.Z, 1)));
 
 	RegisteredScene = World->Scene;
-	RenderProxy = new FWaterInteractionRendererProxy(HeightRT->TextureReference.TextureReferenceRHI, NumCell, CellSpacing, InteractionExtent);
+	RenderProxy = new FWaterInteractionRendererProxy(HeightRT->TextureReference.TextureReferenceRHI, NumCell, CellSpacing, InteractionExtent, Settings->WaterInteractionPulseStrength);
 
 	FWaterInteractionRendererProxy* ProxyForCommand = RenderProxy;
 	FSceneInterface* SceneForCommand = RegisteredScene;
@@ -291,31 +305,10 @@ void UWaterInteractionRendererComponent::UpdateMPC(const FVector& BottomInteract
 		return;
 	}
 
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("WI_OriginWS")),
-		FLinearColor(
-			BottomInteractionCenterWS.X,
-			BottomInteractionCenterWS.Y,
-			BottomInteractionCenterWS.Z,
-			0.0f));
+	UKismetMaterialLibrary::SetVectorParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("WI_OriginWS")), FLinearColor(BottomInteractionCenterWS.X, BottomInteractionCenterWS.Y, BottomInteractionCenterWS.Z, 0.0f));
+	UKismetMaterialLibrary::SetVectorParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("WI_ExtentWS")), FLinearColor(InteractionExtentWS.X, InteractionExtentWS.Y, InteractionExtentWS.Z, 0.0f));
 
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("WI_ExtentWS")),
-		FLinearColor(
-			InteractionExtentWS.X,
-			InteractionExtentWS.Y,
-			InteractionExtentWS.Z,
-			0.0f));
-
-	UKismetMaterialLibrary::SetScalarParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("WI_Valid")),
-		1.0f);
+	UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("WI_Valid")), 1.0f);
 }
 
 void UWaterInteractionRendererComponent::ApplyOutputRenderTarget()

@@ -6,8 +6,8 @@
 
 class FWaterInteractionRendererProxy;
 class FSceneViewFamily;
+class UGroundInteractionWorldSubsystem;
 class UMaterialParameterCollection;
-class UNiagaraComponent;
 class UTextureRenderTarget2D;
 
 UCLASS(ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
@@ -24,11 +24,11 @@ public:
 	virtual void SendRenderTransform_Concurrent() override;
 
 	void InitializeRenderer(
-		UNiagaraComponent* InWaterSplatComponent,
+		UGroundInteractionWorldSubsystem* InSubsystem,
 		UTextureRenderTarget2D* InHeightRT,
 		UMaterialParameterCollection* InMaterialParameterCollection);
 
-	void UpdateWaterInteractionDepth_GameThread(FSceneViewFamily& InViewFamily);
+	void UpdateWaterInteraction_GameThread(FSceneViewFamily& InViewFamily);
 
 private:
 	void CreateRenderProxy();
@@ -40,17 +40,17 @@ private:
 	bool InitOutputRenderTarget(UTextureRenderTarget2D* RenderTarget, const FIntPoint& Size, const FLinearColor& ClearColor) const;
 
 private:
+	TWeakObjectPtr<UGroundInteractionWorldSubsystem> OwnerSubsystem;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> HeightRT = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMaterialParameterCollection> MaterialParameterCollection = nullptr;
 
-	TWeakObjectPtr<UNiagaraComponent> WaterSplatComponent;
-
 	FWaterInteractionRendererProxy* RenderProxy = nullptr;
 	FSceneInterface* RegisteredScene = nullptr;
 	FIntPoint RenderTargetSize = FIntPoint::ZeroValue;
 
-	float DepthUpdateAccumulatorSeconds = 0.0f;
+	float UpdateAccumulatorSeconds = 0.0f;
 };

@@ -1,0 +1,13 @@
+struct FWaterSplat
+{
+	float2 RelativeCenterXY;
+	float2 HalfSizeXY;
+
+	float RotationCos;
+	float RotationSin;
+	uint ShapeType;
+	uint Padding;
+};
+
+#define WATER_SPLAT_SHAPE_SPHERE 0
+#define WATER_SPLAT_SHAPE_BOX 1

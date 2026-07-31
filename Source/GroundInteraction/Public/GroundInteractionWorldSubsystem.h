@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
+#include "WaterInteractionCommon.h"
 #include "GroundInteractionWorldSubsystem.generated.h"
 
 class FGroundInteractionSceneViewExtension;
@@ -12,8 +13,6 @@ class UPrimitiveComponent;
 class UGroundInteractionRendererComponent;
 class UGroundInteractionSettings;
 class UGroundInteractionTargetComponent;
-class UNiagaraComponent;
-class UNiagaraSystem;
 class UWaterInteractionRendererComponent;
 struct FStreamableHandle;
 
@@ -37,6 +36,7 @@ public:
 	void UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive);
 
 	void AddWaterSplat(const FVector& PositionWS, const FVector2D& SizeWS);
+	TArray<FWaterSplatGT> GenerateWaterSplats();
 	
 	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& GetInteractionPrimitives() const
 	{
@@ -109,13 +109,11 @@ private:
 
 	void CreateOrUpdateRendererActor();
 	void CreateOrUpdateGroundRendererComponent();
-	void CreateOrUpdateWaterSplatComponent();
 	void CreateOrUpdateWaterRendererComponent();
 	void DestroyRendererComponent();
 
-	void UpdateWaterSplats();
 	FVector GetWaterSplatVelocityWS(const UPrimitiveComponent* Primitive) const;
-	bool TryCalculateWaterContact(const UPrimitiveComponent* Primitive, const UGroundInteractionSettings* Settings, FVector& OutPositionWS, FVector2D& OutSizeWS) const;
+	bool TryCalculateWaterContact(const UPrimitiveComponent* Primitive, const UGroundInteractionSettings* Settings, FVector& OutPositionWS, FVector& OutNormalWS) const;
 	
 	bool GetPlayerCameraLocation(FVector& OutCameraLocationWS) const;
 
@@ -126,8 +124,7 @@ private:
 	UPROPERTY(Transient)
 	TArray<TWeakObjectPtr<UPrimitiveComponent>> InteractionPrimitives;
 
-	TArray<FVector> PendingWaterSplatPositions;
-	TArray<FVector2D> PendingWaterSplatSizes;
+	TArray<TPair<FVector, FVector2D>> PendingExternalWaterSplats;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> DepthRT = nullptr;
@@ -137,9 +134,6 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UTextureRenderTarget2D> WaterHeightRT = nullptr;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UNiagaraSystem> WaterSplatSystem = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UStaticMesh> CubeMesh = nullptr;
@@ -161,9 +155,6 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UGroundInteractionRendererComponent> RendererComponent = nullptr;
-
-	UPROPERTY(Transient)
-	TObjectPtr<UNiagaraComponent> WaterSplatComponent = nullptr;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UWaterInteractionRendererComponent> WaterRendererComponent = nullptr;

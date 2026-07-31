@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "WaterInteractionCommon.h"
 #include "GroundInteractionTargetComponent.generated.h"
 
 class UGroundInteractionWorldSubsystem;
@@ -45,7 +46,8 @@ private:
 		const FName BoneName,
 		UStaticMesh* StaticMesh,
 		const FTransform& RelativeTransform,
-		const FVector& DesiredWorldSize);
+		const FVector& DesiredWorldSize,
+		EWaterSplatShape WaterSplatShape);
 
 private:
 	UPROPERTY(Transient)

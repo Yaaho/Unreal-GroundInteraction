@@ -4,6 +4,7 @@
 #include "GroundInteractionTargetComponent.h"
 #include "GroundInteractionProxyMeshComponent.h"
 #include "GroundInteractionWorldSubsystem.h"
+#include "WaterInteractionCommon.h"
 
 #include "Engine/World.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -188,7 +189,8 @@ void UGroundInteractionTargetComponent::BuildProxies(
 				BoneName,
 				CubeMesh,
 				RelativeTransform,
-				DesiredWorldSize))
+				DesiredWorldSize,
+				EWaterSplatShape::Box))
 			{
 				InteractionBodies.Add(Proxy);
 			}
@@ -207,7 +209,8 @@ void UGroundInteractionTargetComponent::BuildProxies(
 				BoneName,
 				SphereMesh,
 				RelativeTransform,
-				DesiredWorldSize))
+				DesiredWorldSize,
+				EWaterSplatShape::Sphere))
 			{
 				InteractionBodies.Add(Proxy);
 			}
@@ -228,7 +231,8 @@ void UGroundInteractionTargetComponent::BuildProxies(
 				BoneName,
 				CylinderMesh,
 				RelativeTransform,
-				DesiredWorldSize))
+				DesiredWorldSize,
+				EWaterSplatShape::Sphere))
 			{
 				InteractionBodies.Add(Proxy);
 			}
@@ -240,10 +244,11 @@ UStaticMeshComponent* UGroundInteractionTargetComponent::CreateProxy(
 	UGroundInteractionWorldSubsystem* Subsystem,
 	AActor* OwnerActor,
 	USkeletalMeshComponent* Parent,
-	const FName BoneName,
-	UStaticMesh* StaticMesh,
-	const FTransform& RelativeTransform,
-	const FVector& DesiredWorldSize)
+		const FName BoneName,
+		UStaticMesh* StaticMesh,
+		const FTransform& RelativeTransform,
+		const FVector& DesiredWorldSize,
+		EWaterSplatShape WaterSplatShape)
 {
 	if (!Subsystem || !OwnerActor || !Parent || !StaticMesh)
 	{
@@ -276,6 +281,7 @@ UStaticMeshComponent* UGroundInteractionTargetComponent::CreateProxy(
 	FTransform FinalRelativeTransform = RelativeTransform;
 	FinalRelativeTransform.SetScale3D(RelativeScale3D);
 
+	ProxyComp->SetWaterSplatShape(WaterSplatShape);
 	ProxyComp->SetRelativeTransform(FinalRelativeTransform);
 	ProxyComp->RegisterComponent();
 
