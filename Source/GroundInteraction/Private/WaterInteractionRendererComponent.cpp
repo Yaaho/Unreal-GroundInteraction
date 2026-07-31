@@ -181,34 +181,18 @@ void UWaterInteractionRendererComponent::UpdateWaterInteraction_GameThread(FScen
 	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(GetComponentLocation(), InteractionExtentWS, RenderTargetSize, Settings->WaterInteractionLocationSnapCellCount);
 
 	const FBox InteractionBoundsWS = FBox::BuildAABB(SnappedCenterWS, InteractionExtentWS);
-	const FVector2d SnappedCenterXY(SnappedCenterWS.X, SnappedCenterWS.Y);
+	TArray<FWaterSplatWorld> WaterSplats = Subsystem->GenerateWaterSplats();
 
-	TArray<FWaterSplatGT> WaterSplatsGT = Subsystem->GenerateWaterSplats();
-	TArray<FWaterSplat> WaterSplats;
-	WaterSplats.Reserve(WaterSplatsGT.Num());
-
-	for (const FWaterSplatGT& WaterSplatGT : WaterSplatsGT)
+	WaterSplats.RemoveAll([&InteractionBoundsWS](const FWaterSplatWorld& WaterSplat)
 	{
-		const double AbsRotationCos = FMath::Abs(static_cast<double>(WaterSplatGT.RotationCos));
-		const double AbsRotationSin = FMath::Abs(static_cast<double>(WaterSplatGT.RotationSin));
-		const FVector2d AxisAlignedHalfSize(AbsRotationCos * WaterSplatGT.HalfSizeXY.X + AbsRotationSin * WaterSplatGT.HalfSizeXY.Y, AbsRotationSin * WaterSplatGT.HalfSizeXY.X + AbsRotationCos * WaterSplatGT.HalfSizeXY.Y);
-		const FVector2d SplatMin = WaterSplatGT.AbsoluteCenterXY - AxisAlignedHalfSize;
-		const FVector2d SplatMax = WaterSplatGT.AbsoluteCenterXY + AxisAlignedHalfSize;
+		const double AbsRotationCos = FMath::Abs(static_cast<double>(WaterSplat.RotationCos));
+		const double AbsRotationSin = FMath::Abs(static_cast<double>(WaterSplat.RotationSin));
+		const FVector2d AxisAlignedHalfSize(AbsRotationCos * WaterSplat.HalfSizeXY.X + AbsRotationSin * WaterSplat.HalfSizeXY.Y, AbsRotationSin * WaterSplat.HalfSizeXY.X + AbsRotationCos * WaterSplat.HalfSizeXY.Y);
+		const FVector2d SplatMin = WaterSplat.AbsoluteCenterXY - AxisAlignedHalfSize;
+		const FVector2d SplatMax = WaterSplat.AbsoluteCenterXY + AxisAlignedHalfSize;
 
-		if (SplatMax.X < InteractionBoundsWS.Min.X || SplatMin.X > InteractionBoundsWS.Max.X || SplatMax.Y < InteractionBoundsWS.Min.Y || SplatMin.Y > InteractionBoundsWS.Max.Y)
-		{
-			continue;
-		}
-
-		const FVector2d RelativeCenterXY = WaterSplatGT.AbsoluteCenterXY - SnappedCenterXY;
-		FWaterSplat& WaterSplat = WaterSplats.AddDefaulted_GetRef();
-		WaterSplat.RelativeCenterXY = FVector2f(static_cast<float>(RelativeCenterXY.X), static_cast<float>(RelativeCenterXY.Y));
-		WaterSplat.HalfSizeXY = FVector2f(static_cast<float>(WaterSplatGT.HalfSizeXY.X), static_cast<float>(WaterSplatGT.HalfSizeXY.Y));
-		WaterSplat.RotationCos = WaterSplatGT.RotationCos;
-		WaterSplat.RotationSin = WaterSplatGT.RotationSin;
-		WaterSplat.ShapeType = WaterSplatGT.ShapeType;
-		WaterSplat.Padding = WaterSplatGT.Padding;
-	}
+		return SplatMax.X < InteractionBoundsWS.Min.X || SplatMin.X > InteractionBoundsWS.Max.X || SplatMax.Y < InteractionBoundsWS.Min.Y || SplatMin.Y > InteractionBoundsWS.Max.Y;
+	});
 
 	if (WaterSplats.IsEmpty())
 	{

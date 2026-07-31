@@ -1,4 +1,4 @@
-struct FWaterSplat
+struct FWaterSplatRelative
 {
 	float2 RelativeCenterXY;
 	float2 HalfSizeXY;

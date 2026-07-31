@@ -173,11 +173,11 @@ void UGroundInteractionWorldSubsystem::AddWaterSplat(const FVector& PositionWS, 
 	PendingExternalWaterSplats.Emplace(PositionWS, SizeWS);
 }
 
-TArray<FWaterSplatGT> UGroundInteractionWorldSubsystem::GenerateWaterSplats()
+TArray<FWaterSplatWorld> UGroundInteractionWorldSubsystem::GenerateWaterSplats()
 {
 	check(IsInGameThread());
 
-	TArray<FWaterSplatGT> WaterSplats;
+	TArray<FWaterSplatWorld> WaterSplats;
 
 	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
 	if (!Settings || !Settings->bEnableWaterInteraction || !bWaterAssetsReady || !IsValid(WaterRendererComponent) || !WaterRendererComponent->IsRegistered())
@@ -236,8 +236,8 @@ TArray<FWaterSplatGT> UGroundInteractionWorldSubsystem::GenerateWaterSplats()
 				continue;
 			}
 
-			FWaterSplatGT Splat;
-			if (WaterInteractionCommon::TryMakeWaterSplatGT(Proxy, WaterSurfacePositionWS, WaterSurfaceNormalWS, Splat))
+			FWaterSplatWorld Splat;
+			if (WaterInteractionCommon::TryMakeWaterSplatWorld(Proxy, WaterSurfacePositionWS, WaterSurfaceNormalWS, Splat))
 			{
 				WaterSplats.Add(Splat);
 			}
@@ -257,7 +257,7 @@ TArray<FWaterSplatGT> UGroundInteractionWorldSubsystem::GenerateWaterSplats()
 			continue;
 		}
 
-		FWaterSplatGT& Splat = WaterSplats.AddDefaulted_GetRef();
+		FWaterSplatWorld& Splat = WaterSplats.AddDefaulted_GetRef();
 		Splat.AbsoluteCenterXY = FVector2d(ExternalSplat.Key.X, ExternalSplat.Key.Y);
 		Splat.HalfSizeXY = HalfSizeXY;
 	}

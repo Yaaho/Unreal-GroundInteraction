@@ -12,7 +12,7 @@ enum class EWaterSplatShape : uint8
 	Box = 1
 };
 
-struct FWaterSplatGT
+struct FWaterSplatWorld
 {
 	FVector2d AbsoluteCenterXY = FVector2d(0.0, 0.0);
 	FVector2d HalfSizeXY = FVector2d(0.0, 0.0);
@@ -23,7 +23,7 @@ struct FWaterSplatGT
 	uint32 Padding = 0;
 };
 
-struct FWaterSplat
+struct FWaterSplatRelative
 {
 	FVector2f RelativeCenterXY = FVector2f(0.0f, 0.0f);
 	FVector2f HalfSizeXY = FVector2f(0.0f, 0.0f);
@@ -34,13 +34,13 @@ struct FWaterSplat
 	uint32 Padding = 0;
 };
 
-static_assert(sizeof(FWaterSplat) == 32, "FWaterSplat must match the 32-byte HLSL StructuredBuffer element layout.");
+static_assert(sizeof(FWaterSplatRelative) == 32, "FWaterSplatRelative must match the 32-byte HLSL StructuredBuffer element layout.");
 
 namespace WaterInteractionCommon
 {
-	GROUNDINTERACTION_API bool TryMakeWaterSplatGT(
+	GROUNDINTERACTION_API bool TryMakeWaterSplatWorld(
 		const UGroundInteractionProxyMeshComponent* Proxy,
 		const FVector& WaterSurfacePositionWS,
 		const FVector& WaterSurfaceNormalWS,
-		FWaterSplatGT& OutSplat);
+		FWaterSplatWorld& OutSplat);
 }

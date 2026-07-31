@@ -1,0 +1,101 @@
+#include "/Engine/Private/Common.ush"
+#include "WaterInteractionCommon.ush"
+
+StructuredBuffer<FWaterSplatRelative> WaterSplats;
+RWTexture2D<float> HeightTexture;
+
+int2 NumCells;
+float2 InteractionExtentXY;
+uint NumWaterSplats;
+float PulseStrength;
+
+groupshared bool WaterSplatCullFlags[WI_MAX_SPLATS_PER_PASS];
+
+bool WI_IntersectsGroup(FWaterSplatRelative WaterSplat, float2 GroupBoundsMin, float2 GroupBoundsMax)
+{
+	if (any(WaterSplat.HalfSizeXY <= 1.0e-6f))
+	{
+		return false;
+	}
+
+	const float AbsRotationCos = abs(WaterSplat.RotationCos);
+	const float AbsRotationSin = abs(WaterSplat.RotationSin);
+	const float2 AxisAlignedHalfSize = float2(
+		AbsRotationCos * WaterSplat.HalfSizeXY.x + AbsRotationSin * WaterSplat.HalfSizeXY.y,
+		AbsRotationSin * WaterSplat.HalfSizeXY.x + AbsRotationCos * WaterSplat.HalfSizeXY.y);
+	const float2 SplatBoundsMin = WaterSplat.RelativeCenterXY - AxisAlignedHalfSize;
+	const float2 SplatBoundsMax = WaterSplat.RelativeCenterXY + AxisAlignedHalfSize;
+
+	return all(SplatBoundsMax >= GroupBoundsMin) && all(SplatBoundsMin <= GroupBoundsMax);
+}
+
+bool WI_ContainsPixel(FWaterSplatRelative WaterSplat, float2 PixelPosition)
+{
+	if (any(WaterSplat.HalfSizeXY <= 1.0e-6f))
+	{
+		return false;
+	}
+
+	const float2 ToPixel = PixelPosition - WaterSplat.RelativeCenterXY;
+	const float2 LocalPosition = float2(WaterSplat.RotationCos * ToPixel.x + WaterSplat.RotationSin * ToPixel.y, -WaterSplat.RotationSin * ToPixel.x + WaterSplat.RotationCos * ToPixel.y);
+
+	if (WaterSplat.ShapeType == WATER_SPLAT_SHAPE_SPHERE)
+	{
+		const float2 NormalizedPosition = LocalPosition / WaterSplat.HalfSizeXY;
+		return dot(NormalizedPosition, NormalizedPosition) <= 1.0f;
+	}
+
+	if (WaterSplat.ShapeType == WATER_SPLAT_SHAPE_BOX)
+	{
+		return all(abs(LocalPosition) <= WaterSplat.HalfSizeXY);
+	}
+
+	return false;
+}
+
+[numthreads(WI_THREADGROUP_SIZE_X, WI_THREADGROUP_SIZE_Y, WI_THREADGROUP_SIZE_Z)]
+void MainCS(uint3 GroupId : SV_GroupID, uint3 GroupThreadId : SV_GroupThreadID, uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	// 그룹 안의 이 스레드가 어떤 splatIndex 를 컬링할 지 나타내는 인덱스
+	const uint SplatIndex = GroupThreadId.z * WI_THREADGROUP_SIZE_X * WI_THREADGROUP_SIZE_Y + GroupThreadId.y * WI_THREADGROUP_SIZE_X + GroupThreadId.x;
+
+	const int2 GroupPixelMin = int2(GroupId.xy) * int2(WI_THREADGROUP_SIZE_X, WI_THREADGROUP_SIZE_Y);
+	const int2 GroupPixelMax = min(GroupPixelMin + int2(WI_THREADGROUP_SIZE_X, WI_THREADGROUP_SIZE_Y), NumCells);
+	const float2 CellSize = InteractionExtentXY * 2.0f / float2(NumCells);
+	const float2 GroupBoundsMin = float2(-InteractionExtentXY.x + float(GroupPixelMin.x) * CellSize.x, InteractionExtentXY.y - float(GroupPixelMax.y) * CellSize.y);
+	const float2 GroupBoundsMax = float2(-InteractionExtentXY.x + float(GroupPixelMax.x) * CellSize.x, InteractionExtentXY.y - float(GroupPixelMin.y) * CellSize.y);
+
+	bool IntersectsGroup = false;
+	if (SplatIndex < NumWaterSplats)
+	{
+		IntersectsGroup = WI_IntersectsGroup(WaterSplats[SplatIndex], GroupBoundsMin, GroupBoundsMax);
+	}
+
+	WaterSplatCullFlags[SplatIndex] = IntersectsGroup;
+	GroupMemoryBarrierWithGroupSync();
+
+	if (DispatchThreadId.x >= NumCells.x || DispatchThreadId.y >= NumCells.y)
+	{
+		return;
+	}
+
+	const int2 Pixel = int2(DispatchThreadId.xy);
+	const float2 PixelCenter = float2(Pixel) + 0.5f;
+	const float2 PixelPosition = float2(-InteractionExtentXY.x + PixelCenter.x * CellSize.x, InteractionExtentXY.y - PixelCenter.y * CellSize.y);
+	const uint SafeNumWaterSplats = min(NumWaterSplats, (uint)WI_MAX_SPLATS_PER_PASS);
+	bool bHit = false;
+
+	for (uint WaterSplatIndex = 0; WaterSplatIndex < SafeNumWaterSplats; ++WaterSplatIndex)
+	{
+		if (WaterSplatCullFlags[WaterSplatIndex] && WI_ContainsPixel(WaterSplats[WaterSplatIndex], PixelPosition))
+		{
+			bHit = true;
+			break;
+		}
+	}
+
+	if (bHit)
+	{
+		HeightTexture[Pixel] = HeightTexture[Pixel] + max(PulseStrength, 0.0f);
+	}
+}

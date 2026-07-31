@@ -14,8 +14,7 @@ static TMap<FSceneInterface*, TArray<FWaterInteractionRendererProxy*>> WaterProx
 static constexpr int32 WATER_GROUP_SIZE_X = 8;
 static constexpr int32 WATER_GROUP_SIZE_Y = 8;
 static constexpr int32 WATER_GROUP_SIZE_Z = 1;
-
-
+static constexpr int32 WATER_MAX_SPLATS_PER_PASS = WATER_GROUP_SIZE_X * WATER_GROUP_SIZE_Y * WATER_GROUP_SIZE_Z;
 
 static constexpr EPixelFormat WATER_HEIGHT_PIXEL_FORMAT = PF_R16F;
 
@@ -49,6 +48,39 @@ public:
 
 IMPLEMENT_GLOBAL_SHADER(FWaterScrollingCS, "/Plugin/GroundInteraction/GroundInteractionWaterScrolling.usf", "MainCS", SF_Compute);
 
+class FApplyWaterSplatsCS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FApplyWaterSplatsCS);
+	SHADER_USE_PARAMETER_STRUCT(FApplyWaterSplatsCS, FGlobalShader);
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("WI_THREADGROUP_SIZE_X"), WATER_GROUP_SIZE_X);
+		OutEnvironment.SetDefine(TEXT("WI_THREADGROUP_SIZE_Y"), WATER_GROUP_SIZE_Y);
+		OutEnvironment.SetDefine(TEXT("WI_THREADGROUP_SIZE_Z"), WATER_GROUP_SIZE_Z);
+		OutEnvironment.SetDefine(TEXT("WI_MAX_SPLATS_PER_PASS"), WATER_MAX_SPLATS_PER_PASS);
+	}
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER(FIntPoint, NumCells)
+		SHADER_PARAMETER(FVector2f, InteractionExtentXY)
+		SHADER_PARAMETER(uint32, NumWaterSplats)
+		SHADER_PARAMETER(float, PulseStrength)
+
+		SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FWaterSplatRelative>, WaterSplats)
+		SHADER_PARAMETER_RDG_TEXTURE_UAV(RWTexture2D<float>, HeightTexture)
+	END_SHADER_PARAMETER_STRUCT()
+};
+
+IMPLEMENT_GLOBAL_SHADER(FApplyWaterSplatsCS, "/Plugin/GroundInteraction/GroundInteractionApplyWaterSplats.usf", "MainCS", SF_Compute);
+
 static void AddWaterScrollingPass(
 	FRDGBuilder& GraphBuilder,
 	ERHIFeatureLevel::Type FeatureLevel,
@@ -69,6 +101,43 @@ static void AddWaterScrollingPass(
 	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(FIntVector(NumCells.X, NumCells.Y, 1), FIntVector(WATER_GROUP_SIZE_X, WATER_GROUP_SIZE_Y, WATER_GROUP_SIZE_Z));
 
 	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.WaterScrolling"), ComputeShader, PassParameters, DispatchCount);
+}
+
+static void AddApplyWaterSplatsPass(
+	FRDGBuilder& GraphBuilder,
+	ERHIFeatureLevel::Type FeatureLevel,
+	FRDGTextureUAVRef HeightTextureUAV,
+	const FIntPoint& RenderTargetSize,
+	const FVector& InteractionExtentWS,
+	float PulseStrength,
+	const FWaterSplatRelative* WaterSplats,
+	uint32 NumWaterSplats)
+{
+	check(HeightTextureUAV);
+	check(WaterSplats);
+	check(NumWaterSplats > 0 && NumWaterSplats <= WATER_MAX_SPLATS_PER_PASS);
+
+	const uint64 WaterSplatDataSize = sizeof(FWaterSplatRelative) * NumWaterSplats;
+	FWaterSplatRelative* WaterSplatData = GraphBuilder.AllocPODArray<FWaterSplatRelative>(NumWaterSplats);
+	FMemory::Memcpy(WaterSplatData, WaterSplats, WaterSplatDataSize);
+
+	const FRDGBufferDesc WaterSplatBufferDesc = FRDGBufferDesc::CreateStructuredDesc(sizeof(FWaterSplatRelative), NumWaterSplats);
+	FRDGBufferRef WaterSplatBuffer = GraphBuilder.CreateBuffer(WaterSplatBufferDesc, TEXT("WaterSplatsBuffer"), ERDGBufferFlags::None);
+	GraphBuilder.QueueBufferUpload(WaterSplatBuffer, WaterSplatData, WaterSplatDataSize, ERDGInitialDataFlags::NoCopy);
+
+	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
+	FApplyWaterSplatsCS::FParameters* PassParameters = GraphBuilder.AllocParameters<FApplyWaterSplatsCS::FParameters>();
+	PassParameters->NumCells = NumCells;
+	PassParameters->InteractionExtentXY = FVector2f(static_cast<float>(FMath::Max(InteractionExtentWS.X, 1.0)), static_cast<float>(FMath::Max(InteractionExtentWS.Y, 1.0)));
+	PassParameters->NumWaterSplats = NumWaterSplats;
+	PassParameters->PulseStrength = FMath::Max(PulseStrength, 0.0f);
+	PassParameters->WaterSplats = GraphBuilder.CreateSRV(WaterSplatBuffer);
+	PassParameters->HeightTexture = HeightTextureUAV;
+
+	TShaderMapRef<FApplyWaterSplatsCS> ComputeShader(GetGlobalShaderMap(FeatureLevel));
+	const FIntVector DispatchCount = FComputeShaderUtils::GetGroupCount(FIntVector(NumCells.X, NumCells.Y, 1), FIntVector(WATER_GROUP_SIZE_X, WATER_GROUP_SIZE_Y, WATER_GROUP_SIZE_Z));
+
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("GroundInteraction.ApplyWaterSplats(%u)", NumWaterSplats), ComputeShader, PassParameters, DispatchCount);
 }
 
 FWaterInteractionRendererProxy::FWaterInteractionRendererProxy(
@@ -139,7 +208,7 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 
 	bClearHeightTextures = false;
 
-	const FVector2D CurrentSnappedLocationXY(CurrentSnappedLocation.X, CurrentSnappedLocation.Y);
+	const FVector2d CurrentSnappedLocationXY(CurrentSnappedLocation.X, CurrentSnappedLocation.Y);
 
 	if (!bHasPreviousLocation)
 	{
@@ -204,17 +273,48 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 	}
 
 	// ---- Water Splat pass 실행 ----
-	TArray<FWaterSplat> WaterSplats = MoveTemp(PendingWaterSplats);
+	TArray<FWaterSplatWorld> WaterSplatsWorld = MoveTemp(PendingWaterSplats);
+	TArray<FWaterSplatRelative> WaterSplats;
+	WaterSplats.Reserve(WaterSplatsWorld.Num());
 
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	for (const FWaterSplatWorld& WaterSplatWorld : WaterSplatsWorld)
+	{
+		const FVector2d RelativeCenterXY = WaterSplatWorld.AbsoluteCenterXY - CurrentSnappedLocationXY;
+		FWaterSplatRelative& WaterSplat = WaterSplats.AddDefaulted_GetRef();
+		WaterSplat.RelativeCenterXY = FVector2f(static_cast<float>(RelativeCenterXY.X), static_cast<float>(RelativeCenterXY.Y));
+		WaterSplat.HalfSizeXY = FVector2f(static_cast<float>(WaterSplatWorld.HalfSizeXY.X), static_cast<float>(WaterSplatWorld.HalfSizeXY.Y));
+		WaterSplat.RotationCos = WaterSplatWorld.RotationCos;
+		WaterSplat.RotationSin = WaterSplatWorld.RotationSin;
+		WaterSplat.ShapeType = WaterSplatWorld.ShapeType;
+		WaterSplat.Padding = WaterSplatWorld.Padding;
+	}
+
+	if (!WaterSplats.IsEmpty())
+	{
+		FPlaneTexture& CurrentHeight = HeightTextures[GetCurrentHeightTextureId()];
+		FRDGTextureRef CurrentHeightTexture = CurrentHeight.GetOrCreateTexture(GraphBuilder, TEXT("WaterSplats_CurrentHeight"));
+		FRDGTextureUAVRef CurrentHeightUAV = CurrentHeight.GetOrCreateUAV(GraphBuilder, TEXT("WaterSplats_CurrentHeight"));
+
+		if (CurrentHeightTexture && CurrentHeightUAV)
+		{
+			GraphBuilder.UseInternalAccessMode(CurrentHeightTexture);
+
+			for (int32 StartIndex = 0; StartIndex < WaterSplats.Num(); StartIndex += WATER_MAX_SPLATS_PER_PASS)
+			{
+				const int32 NumWaterSplatsInPass = FMath::Min(WaterSplats.Num() - StartIndex, WATER_MAX_SPLATS_PER_PASS);
+				AddApplyWaterSplatsPass(
+					GraphBuilder,
+					PrimaryView->GetFeatureLevel(),
+					CurrentHeightUAV,
+					RenderTargetSize,
+					InteractionExtentWS,
+					WaterInteractionPulseStrength,
+					WaterSplats.GetData() + StartIndex,
+					static_cast<uint32>(NumWaterSplatsInPass));
+			}
+		}
+	}
+
 	// ---- Water Height Simulation Pass 실행 ----
 	// AddWaterHeightSimulationPass(...);
 	// AdvanceHeightTextureRoles();

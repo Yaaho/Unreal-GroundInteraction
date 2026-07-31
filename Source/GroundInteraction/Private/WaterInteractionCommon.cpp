@@ -32,11 +32,11 @@ namespace
 	}
 }
 
-bool WaterInteractionCommon::TryMakeWaterSplatGT(
+bool WaterInteractionCommon::TryMakeWaterSplatWorld(
 	const UGroundInteractionProxyMeshComponent* Proxy,
 	const FVector& WaterSurfacePositionWS,
 	const FVector& WaterSurfaceNormalWS,
-	FWaterSplatGT& OutSplat)
+	FWaterSplatWorld& OutSplat)
 {
 	check(IsInGameThread());
 
@@ -108,7 +108,7 @@ bool WaterInteractionCommon::TryMakeWaterSplatGT(
 		return false;
 	}
 
-	FWaterSplatGT Splat;
+	FWaterSplatWorld Splat;
 	const EWaterSplatShape ShapeType = Proxy->GetWaterSplatShape();
 
 	switch (ShapeType)

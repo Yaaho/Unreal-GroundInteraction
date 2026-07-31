@@ -29,7 +29,7 @@ public:
 	FVector CurrentSnappedLocation = FVector::ZeroVector;
 	FIntPoint RenderTargetSize = FIntPoint(512, 512);
 	bool bRenderTargetChanged = false;
-	TArray<FWaterSplat> PendingWaterSplats;
+	TArray<FWaterSplatWorld> PendingWaterSplats;
 
 private:
 	void CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll);

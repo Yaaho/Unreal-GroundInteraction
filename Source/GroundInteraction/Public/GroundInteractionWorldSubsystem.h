@@ -36,7 +36,7 @@ public:
 	void UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive);
 
 	void AddWaterSplat(const FVector& PositionWS, const FVector2D& SizeWS);
-	TArray<FWaterSplatGT> GenerateWaterSplats();
+	TArray<FWaterSplatWorld> GenerateWaterSplats();
 	
 	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& GetInteractionPrimitives() const
 	{
