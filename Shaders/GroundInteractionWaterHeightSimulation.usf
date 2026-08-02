@@ -1,0 +1,35 @@
+#include "/Engine/Private/Common.ush"
+
+Texture2D<float> PreviousHeightTexture;
+SamplerState PreviousHeightSampler;
+Texture2D<float> CurrentHeightTexture;
+RWTexture2D<float> NextHeightTexture;
+
+int2 NumCells;
+float DeltaTimeSeconds;
+float AdvectAmount;
+float Damping;
+
+[numthreads(WI_THREADGROUP_SIZE_X, WI_THREADGROUP_SIZE_Y, WI_THREADGROUP_SIZE_Z)]
+void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	if (DispatchThreadId.x >= NumCells.x || DispatchThreadId.y >= NumCells.y)
+	{
+		return;
+	}
+
+	const int2 Pixel = int2(DispatchThreadId.xy);
+	const float2 UV = (float2(Pixel) + 0.5f) / float2(NumCells);
+	const float OffsetUV = AdvectAmount * DeltaTimeSeconds;
+
+	const float NeighborSum =
+		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2( OffsetUV, 0.0f), 0).r +
+		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2(-OffsetUV, 0.0f), 0).r +
+		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2(0.0f,  OffsetUV), 0).r +
+		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2(0.0f, -OffsetUV), 0).r;
+
+	const float CurrentCenter = CurrentHeightTexture.Load(int3(Pixel, 0)).r;
+	const float DampingFactor = 1.0f - saturate(Damping * DeltaTimeSeconds);
+
+	NextHeightTexture[Pixel] = (0.5f * NeighborSum - CurrentCenter) * DampingFactor;
+}

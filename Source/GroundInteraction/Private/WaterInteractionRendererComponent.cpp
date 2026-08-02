@@ -244,7 +244,15 @@ void UWaterInteractionRendererComponent::CreateRenderProxy()
 	const FVector CellSpacing(FMath::Max(InteractionExtent.X, 1.0f) * 2.0f / float(NumCell.X), FMath::Max(InteractionExtent.Y, 1.0f) * 2.0f / float(NumCell.Y), FMath::Max(InteractionExtent.Z, 1.0f) * 2.0f / float(FMath::Max(NumCell.Z, 1)));
 
 	RegisteredScene = World->Scene;
-	RenderProxy = new FWaterInteractionRendererProxy(HeightRT->TextureReference.TextureReferenceRHI, NumCell, CellSpacing, InteractionExtent, Settings->WaterInteractionPulseStrength);
+	RenderProxy = new FWaterInteractionRendererProxy(
+		HeightRT->TextureReference.TextureReferenceRHI,
+		NumCell,
+		CellSpacing,
+		InteractionExtent,
+		Settings->WaterInteractionPulseStrength,
+		Settings->WaterInteractionAdvectAmount,
+		Settings->WaterInteractionDamping,
+		Settings->WaterInteractionMaxDeltaTime);
 
 	FWaterInteractionRendererProxy* ProxyForCommand = RenderProxy;
 	FSceneInterface* SceneForCommand = RegisteredScene;

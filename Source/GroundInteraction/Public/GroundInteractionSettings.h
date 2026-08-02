@@ -39,7 +39,7 @@ public:
 	int32 GroundInteractionRenderTargetSize = 512;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="GroundInteraction", meta=(ClampMin="1", UIMin="1", UIMax="32"))
-	int32 GroundInteractionLocationSnapCellCount = 1;
+	int32 GroundInteractionLocationSnapCellCount = 8;
 	
 	// Depth fade 실행 빈도
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="GroundInteraction", meta=(ClampMin="1", UIMin="1", UIMax="120"))
@@ -56,11 +56,11 @@ public:
 	FVector WaterInteractionWorldExtent = FVector(1000.0f, 1000.0f, 1000.0f);
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="16", UIMin="128", UIMax="2048"))
-	int32 WaterInteractionRenderTargetSize = 512;
+	int32 WaterInteractionRenderTargetSize = 1024;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="32"))
-	int32 WaterInteractionLocationSnapCellCount = 1;
-
+	int32 WaterInteractionLocationSnapCellCount = 16;
+	
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="120"))
 	int32 WaterInteractionUpdateRate = 60;
 
@@ -75,6 +75,15 @@ public:
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionPulseStrength = 1.0f;
+
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
+	float WaterInteractionAdvectAmount = 0.3f;
+
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
+	float WaterInteractionDamping = 3.0f;
+
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.001", UIMin="0.001", UIMax="0.1"))
+	float WaterInteractionMaxDeltaTime = 0.04f;
 	
 	FIntPoint GetGroundInteractionRenderTargetSize() const;
 	FIntPoint GetWaterInteractionRenderTargetSize() const;

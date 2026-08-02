@@ -14,7 +14,10 @@ public:
 		FIntVector InNumCell,
 		FVector InCellSpacing,
 		const FVector& InInteractionExtentWS,
-		float InWaterInteractionPulseStrength);
+		float InWaterInteractionPulseStrength,
+		float InWaterInteractionAdvectAmount,
+		float InWaterInteractionDamping,
+		float InWaterInteractionMaxDeltaTime);
 	
 	virtual ~FWaterInteractionRendererProxy() override = default;
 
@@ -34,7 +37,7 @@ public:
 private:
 	void CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll);
 	void ResetHeightTransientRefs();
-	void CopyCurrentHeightToOutput(FRDGBuilder& GraphBuilder);
+	void CopyHeightToOutput(FRDGBuilder& GraphBuilder, int32 SourceHeightTextureId);
 
 	int32 GetPreviousHeightTextureId() const
 	{
@@ -58,7 +61,7 @@ private:
 		NextHeightTextureId = 2;
 	}
 
-	void AdvanceHeightTextureRoles()
+	void AdvanceHeightTextureAfterScrolling()
 	{
 		const int32 OldPreviousHeightTextureId = PreviousHeightTextureId;
 		const int32 OldCurrentHeightTextureId = CurrentHeightTextureId;
@@ -69,6 +72,17 @@ private:
 		NextHeightTextureId = OldPreviousHeightTextureId;
 	}
 
+	void AdvanceHeightTextureAfterSimulation()
+	{
+		const int32 OldPreviousHeightTextureId = PreviousHeightTextureId;
+		const int32 OldCurrentHeightTextureId = CurrentHeightTextureId;
+		const int32 OldNextHeightTextureId = NextHeightTextureId;
+
+		PreviousHeightTextureId = OldNextHeightTextureId;
+		CurrentHeightTextureId = OldPreviousHeightTextureId;
+		NextHeightTextureId = OldCurrentHeightTextureId;
+	}
+
 	FTextureReferenceRHIRef OutputHeightTextureReferenceRHI;
 
 	FVector CellSpacing = FVector::OneVector;
@@ -77,6 +91,9 @@ private:
 
 	FVector InteractionExtentWS = FVector(1000.0f, 1000.0f, 1000.0f);
 	float WaterInteractionPulseStrength = 1.0f;
+	float WaterInteractionAdvectAmount = 0.3f;
+	float WaterInteractionDamping = 3.0f;
+	float WaterInteractionMaxDeltaTime = 0.04f;
 
 	FPlaneTexture HeightTextures[3];
 
