@@ -70,6 +70,7 @@ public:
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(FIntPoint, NumCells)
+		SHADER_PARAMETER(FVector2f, InteractionExtentXY)
 		SHADER_PARAMETER(float, DeltaTimeSeconds)
 		SHADER_PARAMETER(float, AdvectAmount)
 		SHADER_PARAMETER(float, Damping)
@@ -182,6 +183,7 @@ static void AddWaterHeightSimulationPass(
 	FRDGTextureSRVRef CurrentHeightTextureSRV,
 	FRDGTextureUAVRef NextHeightTextureUAV,
 	const FIntPoint& RenderTargetSize,
+	const FVector2f& InteractionExtentXY,
 	float DeltaTimeSeconds,
 	float AdvectAmount,
 	float Damping)
@@ -190,10 +192,11 @@ static void AddWaterHeightSimulationPass(
 	const FIntPoint NumCells(FMath::Max(RenderTargetSize.X, 1), FMath::Max(RenderTargetSize.Y, 1));
 
 	PassParameters->NumCells = NumCells;
+	PassParameters->InteractionExtentXY = InteractionExtentXY;
 	PassParameters->DeltaTimeSeconds = DeltaTimeSeconds;
 	PassParameters->AdvectAmount = AdvectAmount;
 	PassParameters->Damping = Damping;
-	PassParameters->PreviousHeightSampler = TStaticSamplerState<SF_Bilinear, AM_Clamp, AM_Clamp, AM_Clamp>::GetRHI();
+	PassParameters->PreviousHeightSampler = TStaticSamplerState<SF_Bilinear, AM_Border, AM_Border, AM_Border, 0, 1, 0>::GetRHI();
 	PassParameters->PreviousHeightTexture = PreviousHeightTextureSRV;
 	PassParameters->CurrentHeightTexture = CurrentHeightTextureSRV;
 	PassParameters->NextHeightTexture = NextHeightTextureUAV;
@@ -421,6 +424,7 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 				CurrentHeightSRV,
 				NextHeightUAV,
 				RenderTargetSize,
+				FVector2f(static_cast<float>(InteractionExtentWS.X), static_cast<float>(InteractionExtentWS.Y)),
 				SimulationDeltaTime,
 				WaterInteractionAdvectAmount,
 				WaterInteractionDamping);

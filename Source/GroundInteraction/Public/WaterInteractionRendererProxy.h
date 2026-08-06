@@ -91,7 +91,7 @@ private:
 
 	FVector InteractionExtentWS = FVector(1000.0f, 1000.0f, 1000.0f);
 	float WaterInteractionPulseStrength = 1.0f;
-	float WaterInteractionAdvectAmount = 0.3f;
+	float WaterInteractionAdvectAmount = 600.0f;
 	float WaterInteractionDamping = 3.0f;
 	float WaterInteractionMaxDeltaTime = 0.04f;
 
