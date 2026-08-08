@@ -74,7 +74,7 @@ public:
 	float WaterInteractionSplatIntervalMax = 0.3f;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
-	float WaterInteractionMinVelocity = 30.0f;
+	float WaterInteractionMinVelocity = 5.0f;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionSurfaceDistanceTolerance = 10.0f;

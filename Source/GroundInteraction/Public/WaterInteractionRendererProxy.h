@@ -94,6 +94,7 @@ private:
 	float WaterInteractionAdvectAmount = 600.0f;
 	float WaterInteractionDamping = 3.0f;
 	float WaterInteractionMaxDeltaTime = 0.04f;
+	double WaterRenderTimeRemainingSeconds;
 
 	FPlaneTexture HeightTextures[3];
 
