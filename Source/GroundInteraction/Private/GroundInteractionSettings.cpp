@@ -39,6 +39,13 @@ float UGroundInteractionSettings::GetWaterInteractionUpdateIntervalSeconds() con
 	return 1.0f / float(FMath::Max(WaterInteractionUpdateRate, 1));
 }
 
+FVector2D UGroundInteractionSettings::GetWaterInteractionSplatIntervalRange() const
+{
+	const float SafeMin = FMath::Max(WaterInteractionSplatIntervalMin, 0.0f);
+	const float SafeMax = FMath::Max(WaterInteractionSplatIntervalMax, SafeMin);
+	return FVector2D(SafeMin, SafeMax);
+}
+
 #if WITH_EDITOR
 void UGroundInteractionSettings::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
@@ -50,7 +57,8 @@ void UGroundInteractionSettings::PostEditChangeProperty(FPropertyChangedEvent& P
 	WaterInteractionRenderTargetSize = FMath::Max(WaterInteractionRenderTargetSize, 16);
 	WaterInteractionLocationSnapCellCount = FMath::Max(WaterInteractionLocationSnapCellCount, 1);
 	WaterInteractionUpdateRate = FMath::Max(WaterInteractionUpdateRate, 1);
-	WaterInteractionSplatSpawnProbability = FMath::Clamp(WaterInteractionSplatSpawnProbability, 0.0f, 1.0f);
+	WaterInteractionSplatIntervalMin = FMath::Max(WaterInteractionSplatIntervalMin, 0.0f);
+	WaterInteractionSplatIntervalMax = FMath::Max(WaterInteractionSplatIntervalMax, WaterInteractionSplatIntervalMin);
 	WaterInteractionMinVelocity = FMath::Max(WaterInteractionMinVelocity, 0.0f);
 	WaterInteractionSurfaceDistanceTolerance = FMath::Max(WaterInteractionSurfaceDistanceTolerance, 0.0f);
 	WaterInteractionPulseStrength = FMath::Max(WaterInteractionPulseStrength, 0.0f);

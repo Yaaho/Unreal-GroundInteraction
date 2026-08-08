@@ -52,6 +52,8 @@ public:
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction")
 	bool bEnableWaterInteraction = false;
 
+	// 해야할 일 내부 시뮬레이션 영역을 출력 RT보다 크게 확장
+	// 렌터타겟 영역 밖이 0으로 샘플링되어 또다른 파동을 만드는 문제가 있다.
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides))
 	FVector WaterInteractionWorldExtent = FVector(1000.0f, 1000.0f, 1000.0f);
 
@@ -59,13 +61,17 @@ public:
 	int32 WaterInteractionRenderTargetSize = 1024;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="32"))
-	int32 WaterInteractionLocationSnapCellCount = 16;
+	int32 WaterInteractionLocationSnapCellCount = 64;
 	
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="120"))
 	int32 WaterInteractionUpdateRate = 60;
 
-	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", ClampMax="1.0", UIMin="0.0", UIMax="1.0"))
-	float WaterInteractionSplatSpawnProbability = 0.1f;
+	// 프리미티브별 water splat 주기 범위(초)
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0", UIMax="2.0", Units="s"))
+	float WaterInteractionSplatIntervalMin = 0.1f;
+
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0", UIMax="2.0", Units="s"))
+	float WaterInteractionSplatIntervalMax = 0.3f;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionMinVelocity = 30.0f;
@@ -77,7 +83,7 @@ public:
 	float WaterInteractionPulseStrength = 1.0f;
 	
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0", UIMax="2000.0"))
-	float WaterInteractionAdvectAmount = 600.0f;
+	float WaterInteractionAdvectAmount = 100.0f;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionDamping = 3.0f;
@@ -91,6 +97,7 @@ public:
 	float GetDepthFadeUpdateIntervalSeconds() const;
 	float GetDepthUpdateIntervalSeconds() const;
 	float GetWaterInteractionUpdateIntervalSeconds() const;
+	FVector2D GetWaterInteractionSplatIntervalRange() const;
 	
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

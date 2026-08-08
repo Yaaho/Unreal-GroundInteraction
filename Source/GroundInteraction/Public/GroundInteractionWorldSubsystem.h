@@ -36,7 +36,7 @@ public:
 	void UnregisterInteractionPrimitive(UPrimitiveComponent* Primitive);
 
 	void AddWaterSplat(const FVector& PositionWS, const FVector2D& SizeWS);
-	TArray<FWaterSplatWorld> GenerateWaterSplats();
+	TArray<FWaterSplatWorld> GenerateWaterSplats(double CurrentTimeSeconds);
 	
 	const TArray<TWeakObjectPtr<UPrimitiveComponent>>& GetInteractionPrimitives() const
 	{
@@ -123,6 +123,8 @@ private:
 
 	UPROPERTY(Transient)
 	TArray<TWeakObjectPtr<UPrimitiveComponent>> InteractionPrimitives;
+
+	TMap<TWeakObjectPtr<UPrimitiveComponent>, double> WaterSplatScheduleTimes;
 
 	TArray<TPair<FVector, FVector2D>> PendingExternalWaterSplats;
 

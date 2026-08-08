@@ -61,6 +61,7 @@ void UGroundInteractionWorldSubsystem::Deinitialize()
 
 	RegisteredTargets.Empty();
 	InteractionPrimitives.Empty();
+	WaterSplatScheduleTimes.Empty();
 	PendingExternalWaterSplats.Reset();
 
 	bAssetsReady = false;
@@ -164,6 +165,7 @@ void UGroundInteractionWorldSubsystem::UnregisterInteractionPrimitive(UPrimitive
 	}
 
 	InteractionPrimitives.Remove(Primitive);
+	WaterSplatScheduleTimes.Remove(TWeakObjectPtr<UPrimitiveComponent>(Primitive));
 }
 
 void UGroundInteractionWorldSubsystem::AddWaterSplat(const FVector& PositionWS, const FVector2D& SizeWS)
@@ -173,7 +175,7 @@ void UGroundInteractionWorldSubsystem::AddWaterSplat(const FVector& PositionWS, 
 	PendingExternalWaterSplats.Emplace(PositionWS, SizeWS);
 }
 
-TArray<FWaterSplatWorld> UGroundInteractionWorldSubsystem::GenerateWaterSplats()
+TArray<FWaterSplatWorld> UGroundInteractionWorldSubsystem::GenerateWaterSplats(double CurrentTimeSeconds)
 {
 	check(IsInGameThread());
 
@@ -201,46 +203,69 @@ TArray<FWaterSplatWorld> UGroundInteractionWorldSubsystem::GenerateWaterSplats()
 
 	WaterSplats.Reserve(InteractionPrimitives.Num() + PendingExternalWaterSplats.Num());
 
-	const float SpawnProbability = FMath::Clamp(Settings->WaterInteractionSplatSpawnProbability, 0.0f, 1.0f);
-	if (SpawnProbability > 0.0f)
+	if (!FMath::IsFinite(CurrentTimeSeconds))
 	{
-		const float MinVelocitySq = FMath::Square(FMath::Max(Settings->WaterInteractionMinVelocity, 0.0f));
+		return WaterSplats;
+	}
 
-		for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
+	for (auto ScheduleIt = WaterSplatScheduleTimes.CreateIterator(); ScheduleIt; ++ScheduleIt)
+	{
+		if (!ScheduleIt.Key().IsValid())
 		{
-			UGroundInteractionProxyMeshComponent* Proxy = Cast<UGroundInteractionProxyMeshComponent>(PrimitiveWeak.Get());
-			if (!IsValid(Proxy) || !Proxy->IsRegistered())
-			{
-				continue;
-			}
+			ScheduleIt.RemoveCurrent();
+		}
+	}
 
-			if (GetWaterSplatVelocityWS(Proxy).SizeSquared() < MinVelocitySq)
-			{
-				continue;
-			}
+	const FVector2D SplatIntervalRange = Settings->GetWaterInteractionSplatIntervalRange();
+	const float MinVelocitySq = FMath::Square(FMath::Max(Settings->WaterInteractionMinVelocity, 0.0f));
 
-			if (!InteractionBoundsWS.Intersect(Proxy->Bounds.GetBox()))
-			{
-				continue;
-			}
+	for (int32 PrimitiveIndex = InteractionPrimitives.Num() - 1; PrimitiveIndex >= 0; --PrimitiveIndex)
+	{
+		const TWeakObjectPtr<UPrimitiveComponent> PrimitiveWeak = InteractionPrimitives[PrimitiveIndex];
+		UGroundInteractionProxyMeshComponent* Proxy = Cast<UGroundInteractionProxyMeshComponent>(PrimitiveWeak.Get());
+		if (!IsValid(Proxy))
+		{
+			WaterSplatScheduleTimes.Remove(PrimitiveWeak);
+			InteractionPrimitives.RemoveAtSwap(PrimitiveIndex);
+			continue;
+		}
 
-			if (SpawnProbability < 1.0f && FMath::FRand() >= SpawnProbability)
-			{
-				continue;
-			}
+		if (!Proxy->IsRegistered())
+		{
+			continue;
+		}
 
-			FVector WaterSurfacePositionWS = FVector::ZeroVector;
-			FVector WaterSurfaceNormalWS = FVector::UpVector;
-			if (!TryCalculateWaterContact(Proxy, Settings, WaterSurfacePositionWS, WaterSurfaceNormalWS))
-			{
-				continue;
-			}
+		double& NextAttemptTimeSeconds = WaterSplatScheduleTimes.FindOrAdd(PrimitiveWeak, CurrentTimeSeconds);
 
-			FWaterSplatWorld Splat;
-			if (WaterInteractionCommon::TryMakeWaterSplatWorld(Proxy, WaterSurfacePositionWS, WaterSurfaceNormalWS, Splat))
-			{
-				WaterSplats.Add(Splat);
-			}
+		if (CurrentTimeSeconds < NextAttemptTimeSeconds)
+		{
+			continue;
+		}
+
+		// 성공 여부와 관계없이 다음 시도를 먼저 예약해 실패한 프리미티브의 매 업데이트 재검사를 막는다.
+		NextAttemptTimeSeconds = CurrentTimeSeconds + static_cast<double>(FMath::FRandRange(SplatIntervalRange.X, SplatIntervalRange.Y));
+
+		if (GetWaterSplatVelocityWS(Proxy).SizeSquared() < MinVelocitySq)
+		{
+			continue;
+		}
+
+		if (!InteractionBoundsWS.Intersect(Proxy->Bounds.GetBox()))
+		{
+			continue;
+		}
+
+		FVector WaterSurfacePositionWS = FVector::ZeroVector;
+		FVector WaterSurfaceNormalWS = FVector::UpVector;
+		if (!TryCalculateWaterContact(Proxy, Settings, WaterSurfacePositionWS, WaterSurfaceNormalWS))
+		{
+			continue;
+		}
+
+		FWaterSplatWorld Splat;
+		if (WaterInteractionCommon::TryMakeWaterSplatWorld(Proxy, WaterSurfacePositionWS, WaterSurfaceNormalWS, Splat))
+		{
+			WaterSplats.Add(Splat);
 		}
 	}
 

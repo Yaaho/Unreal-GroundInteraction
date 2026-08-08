@@ -181,7 +181,7 @@ void UWaterInteractionRendererComponent::UpdateWaterInteraction_GameThread(FScen
 	const FVector SnappedCenterWS = GroundInteractionCommon::SnapInteractionCenterWS(GetComponentLocation(), InteractionExtentWS, RenderTargetSize, Settings->WaterInteractionLocationSnapCellCount);
 
 	const FBox InteractionBoundsWS = FBox::BuildAABB(SnappedCenterWS, InteractionExtentWS);
-	TArray<FWaterSplatWorld> WaterSplats = Subsystem->GenerateWaterSplats();
+	TArray<FWaterSplatWorld> WaterSplats = Subsystem->GenerateWaterSplats(InViewFamily.Time.GetRealTimeSeconds());
 
 	WaterSplats.RemoveAll([&InteractionBoundsWS](const FWaterSplatWorld& WaterSplat)
 	{
