@@ -230,36 +230,23 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 
 void UGroundInteractionRendererComponent::UpdateMPC(const FVector& BottomInteractionCenterWS, const FVector& InteractionExtentWS) const
 {
-	if (!GetWorld() || !MaterialParameterCollection)
+	const UGroundInteractionSettings* Settings = UGroundInteractionSettings::Get();
+
+	if (!GetWorld() || !MaterialParameterCollection || !Settings)
 	{
 		return;
 	}
 
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("GI_OriginWS")),
-		FLinearColor(
-			BottomInteractionCenterWS.X,
-			BottomInteractionCenterWS.Y,
-			BottomInteractionCenterWS.Z,
-			0.0f));
+	UKismetMaterialLibrary::SetVectorParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_OriginWS")), 
+		FLinearColor(BottomInteractionCenterWS.X, BottomInteractionCenterWS.Y, BottomInteractionCenterWS.Z,0.0f));
 
-	UKismetMaterialLibrary::SetVectorParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("GI_ExtentWS")),
-		FLinearColor(
-			InteractionExtentWS.X,
-			InteractionExtentWS.Y,
-			InteractionExtentWS.Z,
-			0.0f));
+	UKismetMaterialLibrary::SetVectorParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_ExtentWS")),
+		FLinearColor(InteractionExtentWS.X, InteractionExtentWS.Y, InteractionExtentWS.Z, 0.0f));
 
-	UKismetMaterialLibrary::SetScalarParameterValue(
-		GetWorld(),
-		MaterialParameterCollection,
-		FName(TEXT("GI_Valid")),
-		1.0f);
+	UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_Valid")), 1.0f);
+
+	UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_FadeRate")), 
+		FMath::Max(Settings->FadeRiseSpeed, 0.0f));
 }
 
 void UGroundInteractionRendererComponent::CreateRenderProxy()

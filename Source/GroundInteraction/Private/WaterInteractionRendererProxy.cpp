@@ -17,8 +17,6 @@ DECLARE_GPU_STAT_NAMED(GroundInteractionWaterSplats, TEXT("GroundInteraction Wat
 DECLARE_GPU_STAT_NAMED(GroundInteractionWaterSimulation, TEXT("GroundInteraction Water Simulation"));
 DECLARE_GPU_STAT_NAMED(GroundInteractionWaterOutputCopy, TEXT("GroundInteraction Water Output Copy"));
 
-// Keep these names unique because Unreal's Unity build can concatenate this
-// source file with GroundInteractionRendererProxy.cpp into one translation unit.
 static constexpr int32 WATER_GROUP_SIZE_X = 8;
 static constexpr int32 WATER_GROUP_SIZE_Y = 8;
 static constexpr int32 WATER_GROUP_SIZE_Z = 1;
