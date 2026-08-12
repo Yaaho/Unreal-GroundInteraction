@@ -244,8 +244,8 @@ void UGroundInteractionRendererComponent::UpdateMPC(const FVector& BottomInterac
 		FLinearColor(InteractionExtentWS.X, InteractionExtentWS.Y, InteractionExtentWS.Z, 0.0f));
 
 	UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_Valid")), 1.0f);
-
-	UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_FadeRate")), 
+	
+	UKismetMaterialLibrary::SetScalarParameterValue(GetWorld(), MaterialParameterCollection, FName(TEXT("GI_FadeSpeed")), 
 		FMath::Max(Settings->FadeRiseSpeed, 0.0f));
 }
 
