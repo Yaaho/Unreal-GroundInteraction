@@ -252,7 +252,8 @@ void UWaterInteractionRendererComponent::CreateRenderProxy()
 		Settings->WaterInteractionPulseStrength,
 		Settings->WaterInteractionAdvectAmount,
 		Settings->WaterInteractionDamping,
-		Settings->WaterInteractionMaxDeltaTime);
+		Settings->WaterInteractionSimulationRate,
+		Settings->WaterInteractionMaxSubstepsPerFrame);
 
 	FWaterInteractionRendererProxy* ProxyForCommand = RenderProxy;
 	FSceneInterface* SceneForCommand = RegisteredScene;

@@ -63,7 +63,8 @@ public:
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="32"))
 	int32 WaterInteractionLocationSnapCellCount = 64;
 	
-	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="120"))
+	// Water Splat 생성 검사 빈도
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="120", Units="Hz"))
 	int32 WaterInteractionUpdateRate = 60;
 
 	// 프리미티브별 water splat 주기 범위(초)
@@ -88,8 +89,13 @@ public:
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.0", UIMin="0.0"))
 	float WaterInteractionDamping = 3.0f;
 
-	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="0.001", UIMin="0.001", UIMax="0.1"))
-	float WaterInteractionMaxDeltaTime = 0.04f;
+	// Water Height 시뮬레이션의 초당 고정 실행 횟수
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="15", UIMax="120", Units="Hz"))
+	int32 WaterInteractionSimulationRate = 60;
+
+	// 프레임 저하 시 한 렌더 프레임에서 따라잡을 최대 시뮬레이션 횟수
+	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="8"))
+	int32 WaterInteractionMaxSubstepsPerFrame = 4;
 	
 	FIntPoint GetGroundInteractionRenderTargetSize() const;
 	FIntPoint GetWaterInteractionRenderTargetSize() const;

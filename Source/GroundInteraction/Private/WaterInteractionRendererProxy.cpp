@@ -221,7 +221,8 @@ FWaterInteractionRendererProxy::FWaterInteractionRendererProxy(
 	float InWaterInteractionPulseStrength,
 	float InWaterInteractionAdvectAmount,
 	float InWaterInteractionDamping,
-	float InWaterInteractionMaxDeltaTime)
+	int32 InWaterInteractionSimulationRate,
+	int32 InWaterInteractionMaxSubstepsPerFrame)
 	: CurrentSnappedLocation(FVector::ZeroVector)
 	, RenderTargetSize(
 		FMath::Max(InNumCell.X, 1),
@@ -238,7 +239,9 @@ FWaterInteractionRendererProxy::FWaterInteractionRendererProxy(
 	, WaterInteractionPulseStrength(FMath::Max(InWaterInteractionPulseStrength, 0.0f))
 	, WaterInteractionAdvectAmount(FMath::Max(InWaterInteractionAdvectAmount, 0.0f))
 	, WaterInteractionDamping(FMath::Max(InWaterInteractionDamping, 0.0f))
-	, WaterInteractionMaxDeltaTime(FMath::Max(InWaterInteractionMaxDeltaTime, KINDA_SMALL_NUMBER))
+	, WaterInteractionFixedDeltaTime(1.0 / static_cast<double>(FMath::Max(InWaterInteractionSimulationRate, 1)))
+	, WaterInteractionMaxSubstepsPerFrame(FMath::Max(InWaterInteractionMaxSubstepsPerFrame, 1))
+	, SimulationAccumulatorSeconds(0.0)
 	, WaterRenderTimeRemainingSeconds(0.0)
 	, HeightTextures()
 	, PreviousHeightTextureId(0)
@@ -272,13 +275,16 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 		return;
 	}
 
+	const double FrameDeltaTimeSeconds = FMath::Max(InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0);
+
 	// Splat 이 일정 기간 없을 때 Render() 전체 과정 조기 리턴하여 스킵
 	if (PendingWaterSplats.IsEmpty())
 	{
-		WaterRenderTimeRemainingSeconds = FMath::Max(WaterRenderTimeRemainingSeconds - InViewFamily.Time.GetDeltaRealTimeSeconds(), 0.0);
+		WaterRenderTimeRemainingSeconds = FMath::Max(WaterRenderTimeRemainingSeconds - FrameDeltaTimeSeconds, 0.0);
 
 		if (WaterRenderTimeRemainingSeconds <= 0.0)
 		{
+			SimulationAccumulatorSeconds = 0.0;
 			return;
 		}
 	}
@@ -299,9 +305,10 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 
 		ResetHeightTextureRoles();
 		bClearHeightTextures = true;
+		SimulationAccumulatorSeconds = 0.0;
 	}
 
-	CheckHeightTextures(GraphBuilder, RenderTargetSize, bClearHeightTextures);
+	bool bShouldUpdateOutputHeight = CheckHeightTextures(GraphBuilder, RenderTargetSize, bClearHeightTextures);
 
 	bClearHeightTextures = false;
 
@@ -362,6 +369,7 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 					ScrollPixels);
 
 				AdvanceHeightTextureAfterScrolling();
+				bShouldUpdateOutputHeight = true;
 				PreviousSnappedLocation = CurrentSnappedLocationXY;
 			}
 		}
@@ -371,24 +379,26 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 		}
 	}
 
-	// ---- Water Splat pass 실행 ----
-	TArray<FWaterSplatWorld> WaterSplatsWorld = MoveTemp(PendingWaterSplats);
-	TArray<FWaterSplatRelative> WaterSplats;
-	WaterSplats.Reserve(WaterSplatsWorld.Num());
+	// ---- Fixed Water Height Simulation 실행 ----
+	const double FixedDeltaTimeSeconds = FMath::Max(static_cast<double>(WaterInteractionFixedDeltaTime), static_cast<double>(KINDA_SMALL_NUMBER));
+	const double MaxAccumulatedTimeSeconds = FixedDeltaTimeSeconds * static_cast<double>(WaterInteractionMaxSubstepsPerFrame);
+	SimulationAccumulatorSeconds = FMath::Min(SimulationAccumulatorSeconds + FrameDeltaTimeSeconds, MaxAccumulatedTimeSeconds);
 
-	for (const FWaterSplatWorld& WaterSplatWorld : WaterSplatsWorld)
+	const int32 SimulationSubstepCount = FMath::Min(FMath::FloorToInt(SimulationAccumulatorSeconds / FixedDeltaTimeSeconds), WaterInteractionMaxSubstepsPerFrame);
+
+	// 델타 타임이 시뮬레이션을 실행할 만큼 누적되지 않았으면 스크롤링한 결과를 렌더 타겟에 복사
+	if (SimulationSubstepCount <= 0)
 	{
-		const FVector2d RelativeCenterXY = WaterSplatWorld.AbsoluteCenterXY - CurrentSnappedLocationXY;
-		FWaterSplatRelative& WaterSplat = WaterSplats.AddDefaulted_GetRef();
-		WaterSplat.RelativeCenterXY = FVector2f(static_cast<float>(RelativeCenterXY.X), static_cast<float>(RelativeCenterXY.Y));
-		WaterSplat.HalfSizeXY = FVector2f(static_cast<float>(WaterSplatWorld.HalfSizeXY.X), static_cast<float>(WaterSplatWorld.HalfSizeXY.Y));
-		WaterSplat.RotationCos = WaterSplatWorld.RotationCos;
-		WaterSplat.RotationSin = WaterSplatWorld.RotationSin;
-		WaterSplat.ShapeType = WaterSplatWorld.ShapeType;
-		WaterSplat.Padding = WaterSplatWorld.Padding;
+		if (bShouldUpdateOutputHeight)
+		{
+			CopyHeightToOutput(GraphBuilder, GetPreviousHeightTextureId());
+		}
+
+		return;
 	}
 
-	if (!WaterSplats.IsEmpty())
+	// ---- Water Splat Pass 실행 ----
+	if (!PendingWaterSplats.IsEmpty())
 	{
 		FPlaneTexture& CurrentHeight = HeightTextures[GetCurrentHeightTextureId()];
 		FRDGTextureRef CurrentHeightTexture = CurrentHeight.GetOrCreateTexture(GraphBuilder, TEXT("WaterSplats_CurrentHeight"));
@@ -396,39 +406,52 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 
 		if (CurrentHeightTexture && CurrentHeightUAV)
 		{
-			RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionWaterSplats, "GroundInteraction::WaterSplats");
+			TArray<FWaterSplatRelative> WaterSplats;
+			WaterSplats.Reserve(PendingWaterSplats.Num());
+
+			for (const FWaterSplatWorld& WaterSplatWorld : PendingWaterSplats)
+			{
+				const FVector2d RelativeCenterXY = WaterSplatWorld.AbsoluteCenterXY - CurrentSnappedLocationXY;
+				FWaterSplatRelative& WaterSplat = WaterSplats.AddDefaulted_GetRef();
+				WaterSplat.RelativeCenterXY = FVector2f(static_cast<float>(RelativeCenterXY.X), static_cast<float>(RelativeCenterXY.Y));
+				WaterSplat.HalfSizeXY = FVector2f(static_cast<float>(WaterSplatWorld.HalfSizeXY.X), static_cast<float>(WaterSplatWorld.HalfSizeXY.Y));
+				WaterSplat.RotationCos = WaterSplatWorld.RotationCos;
+				WaterSplat.RotationSin = WaterSplatWorld.RotationSin;
+				WaterSplat.ShapeType = WaterSplatWorld.ShapeType;
+				WaterSplat.Padding = WaterSplatWorld.Padding;
+			}
 
 			GraphBuilder.UseInternalAccessMode(CurrentHeightTexture);
 
-			for (int32 StartIndex = 0; StartIndex < WaterSplats.Num(); StartIndex += WATER_MAX_SPLATS_PER_PASS)
 			{
-				const int32 NumWaterSplatsInPass = FMath::Min(WaterSplats.Num() - StartIndex, WATER_MAX_SPLATS_PER_PASS);
-				AddApplyWaterSplatsPass(
-					GraphBuilder,
-					PrimaryView->GetFeatureLevel(),
-					CurrentHeightUAV,
-					RenderTargetSize,
-					InteractionExtentWS,
-					WaterInteractionPulseStrength,
-					WaterSplats.GetData() + StartIndex,
-					static_cast<uint32>(NumWaterSplatsInPass));
+				RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionWaterSplats, "GroundInteraction::WaterSplats");
+
+				for (int32 StartIndex = 0; StartIndex < WaterSplats.Num(); StartIndex += WATER_MAX_SPLATS_PER_PASS)
+				{
+					const int32 NumWaterSplatsInPass = FMath::Min(WaterSplats.Num() - StartIndex, WATER_MAX_SPLATS_PER_PASS);
+					AddApplyWaterSplatsPass(
+						GraphBuilder,
+						PrimaryView->GetFeatureLevel(),
+						CurrentHeightUAV,
+						RenderTargetSize,
+						InteractionExtentWS,
+						WaterInteractionPulseStrength,
+						WaterSplats.GetData() + StartIndex,
+						static_cast<uint32>(NumWaterSplatsInPass));
+				}
 			}
+
+			PendingWaterSplats.Reset();
 		}
 	}
 
-	// ---- Water Height Simulation Pass 실행 ----
-	const float SimulationDeltaTime = FMath::Clamp(
-		InViewFamily.Time.GetDeltaRealTimeSeconds(),
-		0.0f,
-		WaterInteractionMaxDeltaTime);
+	int32 ExecutedSimulationSubstepCount = 0;
 
-	if (SimulationDeltaTime > 0.0f)
+	for (int32 SubstepIndex = 0; SubstepIndex < SimulationSubstepCount; ++SubstepIndex)
 	{
-		const int32 SimulationOutputHeightTextureId = GetNextHeightTextureId();
-
 		FPlaneTexture& PreviousHeight = HeightTextures[GetPreviousHeightTextureId()];
 		FPlaneTexture& CurrentHeight = HeightTextures[GetCurrentHeightTextureId()];
-		FPlaneTexture& NextHeight = HeightTextures[SimulationOutputHeightTextureId];
+		FPlaneTexture& NextHeight = HeightTextures[GetNextHeightTextureId()];
 
 		FRDGTextureRef PreviousHeightTexture = PreviousHeight.GetOrCreateTexture(GraphBuilder, TEXT("WaterHeightSimulation_PreviousHeight"));
 		FRDGTextureRef CurrentHeightTexture = CurrentHeight.GetOrCreateTexture(GraphBuilder, TEXT("WaterHeightSimulation_CurrentHeight"));
@@ -438,32 +461,42 @@ void FWaterInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVie
 		FRDGTextureSRVRef CurrentHeightSRV = CurrentHeight.GetOrCreateSRV(GraphBuilder, TEXT("WaterHeightSimulation_CurrentHeight"));
 		FRDGTextureUAVRef NextHeightUAV = NextHeight.GetOrCreateUAV(GraphBuilder, TEXT("WaterHeightSimulation_NextHeight"));
 
-		if (PreviousHeightTexture && CurrentHeightTexture && NextHeightTexture &&
-			PreviousHeightSRV && CurrentHeightSRV && NextHeightUAV)
+		if (!PreviousHeightTexture || !CurrentHeightTexture || !NextHeightTexture ||
+			!PreviousHeightSRV || !CurrentHeightSRV || !NextHeightUAV)
 		{
-			GraphBuilder.UseInternalAccessMode(PreviousHeightTexture);
-			GraphBuilder.UseInternalAccessMode(CurrentHeightTexture);
-			GraphBuilder.UseInternalAccessMode(NextHeightTexture);
-
-			{
-				RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionWaterSimulation, "GroundInteraction::WaterSimulation");
-
-				AddWaterHeightSimulationPass(
-					GraphBuilder,
-					PrimaryView->GetFeatureLevel(),
-					PreviousHeightSRV,
-					CurrentHeightSRV,
-					NextHeightUAV,
-					RenderTargetSize,
-					FVector2f(static_cast<float>(InteractionExtentWS.X), static_cast<float>(InteractionExtentWS.Y)),
-					SimulationDeltaTime,
-					WaterInteractionAdvectAmount,
-					WaterInteractionDamping);
-			}
-
-			CopyHeightToOutput(GraphBuilder, SimulationOutputHeightTextureId);
-			AdvanceHeightTextureAfterSimulation();
+			break;
 		}
+
+		GraphBuilder.UseInternalAccessMode(PreviousHeightTexture);
+		GraphBuilder.UseInternalAccessMode(CurrentHeightTexture);
+		GraphBuilder.UseInternalAccessMode(NextHeightTexture);
+
+		{
+			RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionWaterSimulation, "GroundInteraction::WaterSimulation");
+
+			AddWaterHeightSimulationPass(
+				GraphBuilder,
+				PrimaryView->GetFeatureLevel(),
+				PreviousHeightSRV,
+				CurrentHeightSRV,
+				NextHeightUAV,
+				RenderTargetSize,
+				FVector2f(static_cast<float>(InteractionExtentWS.X), static_cast<float>(InteractionExtentWS.Y)),
+				static_cast<float>(FixedDeltaTimeSeconds),
+				WaterInteractionAdvectAmount,
+				WaterInteractionDamping);
+		}
+
+		AdvanceHeightTextureAfterSimulation();
+		bShouldUpdateOutputHeight = true;
+		++ExecutedSimulationSubstepCount;
+	}
+
+	SimulationAccumulatorSeconds = FMath::Max(SimulationAccumulatorSeconds - FixedDeltaTimeSeconds * static_cast<double>(ExecutedSimulationSubstepCount), 0.0);
+
+	if (bShouldUpdateOutputHeight)
+	{
+		CopyHeightToOutput(GraphBuilder, GetPreviousHeightTextureId());
 	}
 }
 
@@ -524,7 +557,7 @@ TArray<FWaterInteractionRendererProxy*> FWaterInteractionRendererProxy::GetProxi
 	return Proxies ? *Proxies : TArray<FWaterInteractionRendererProxy*>();
 }
 
-void FWaterInteractionRendererProxy::CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll)
+bool FWaterInteractionRendererProxy::CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll)
 {
 	check(IsInRenderingThread());
 
@@ -554,12 +587,14 @@ void FWaterInteractionRendererProxy::CheckHeightTextures(FRDGBuilder& GraphBuild
 
 	if (!bAllocatedAny && !bClearAll)
 	{
-		return;
+		return false;
 	}
 
 	RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionWaterClear, "GroundInteraction::WaterClear");
 
 	ResetHeightTransientRefs();
+
+	bool bClearedAny = false;
 
 	for (int32 TextureId = 0; TextureId < 3; ++TextureId)
 	{
@@ -576,9 +611,12 @@ void FWaterInteractionRendererProxy::CheckHeightTextures(FRDGBuilder& GraphBuild
 		GraphBuilder.UseInternalAccessMode(HeightTexture);
 
 		AddClearUAVPass(GraphBuilder, HeightUAV, FVector4f(0.0f, 0.0f, 0.0f, 0.0f));
+		bClearedAny = true;
 
 		GraphBuilder.SetTextureAccessFinal(HeightTexture, ERHIAccess::SRVMask);
 	}
+
+	return bClearedAny;
 }
 
 void FWaterInteractionRendererProxy::ResetHeightTransientRefs()

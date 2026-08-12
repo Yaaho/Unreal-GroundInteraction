@@ -17,7 +17,8 @@ public:
 		float InWaterInteractionPulseStrength,
 		float InWaterInteractionAdvectAmount,
 		float InWaterInteractionDamping,
-		float InWaterInteractionMaxDeltaTime);
+		int32 InWaterInteractionSimulationRate,
+		int32 InWaterInteractionMaxSubstepsPerFrame);
 	
 	virtual ~FWaterInteractionRendererProxy() override = default;
 
@@ -35,7 +36,7 @@ public:
 	TArray<FWaterSplatWorld> PendingWaterSplats;
 
 private:
-	void CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll);
+	bool CheckHeightTextures(FRDGBuilder& GraphBuilder, const FIntPoint& InRenderTargetSize, bool bClearAll);
 	void ResetHeightTransientRefs();
 	void CopyHeightToOutput(FRDGBuilder& GraphBuilder, int32 SourceHeightTextureId);
 
@@ -93,8 +94,10 @@ private:
 	float WaterInteractionPulseStrength = 1.0f;
 	float WaterInteractionAdvectAmount = 600.0f;
 	float WaterInteractionDamping = 3.0f;
-	float WaterInteractionMaxDeltaTime = 0.04f;
-	double WaterRenderTimeRemainingSeconds;
+	double WaterInteractionFixedDeltaTime = 1.0 / 60.0;
+	int32 WaterInteractionMaxSubstepsPerFrame = 4;
+	double SimulationAccumulatorSeconds = 0.0;
+	double WaterRenderTimeRemainingSeconds = 0.0;
 
 	FPlaneTexture HeightTextures[3];
 
