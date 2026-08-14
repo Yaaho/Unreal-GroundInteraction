@@ -47,7 +47,7 @@ public:
 	
 	// Depth Update 실행 빈도
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="GroundInteraction", meta=(ClampMin="1", UIMin="1", UIMax="120"))
-	int32 GroundInteractionDepthUpdateRate = 60;
+	int32 GroundInteractionDepthUpdateRate = 30;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction")
 	bool bEnableWaterInteraction = false;

@@ -217,11 +217,6 @@ void UGroundInteractionRendererComponent::UpdateGroundInteractionDepth_GameThrea
 		ShowOnlyPrimitives.Add(Primitive->GetPrimitiveSceneId());
 	}
 
-	if (ShowOnlyPrimitives.Num() <= 0)
-	{
-		return;
-	}
-
 	const FVector BottomInteractionCenterWS = GroundInteractionCommon::GetBottomInteractionCenterWS(SnappedCenterWS, InteractionExtentWS);
 
 	RenderProxy->QueueGroundInteractionDepthPass_GameThread(InViewFamily, ShowOnlyPrimitives, BottomInteractionCenterWS, RenderTargetSize);

@@ -48,15 +48,12 @@ public:
 	
 public:
 	// FGroundInteractionDepthPass::OnPostRender에서 호출되는 함수
-	// custom depth 결과를 CurrentStateIndex texture에 반영
-	void UpdateGroundInteractionDepth(
+	// custom depth 결과를 다음 Render에서 사용할 capture texture에 보관
+	void StoreGroundInteractionDepthCapture(
 		FRDGBuilder& GraphBuilder,
 		FRDGTextureRef DepthPassTexture,
 		const FIntPoint& PassRenderTargetSize,
-		float PassMaxSceneDepth,
-		float PassSceneDepthInvalidEpsilon,
-		const FVector& PassBottomInteractionCenterWS,
-		ERHIFeatureLevel::Type FeatureLevel);
+		const FVector& PassBottomInteractionCenterWS);
 	
 public:
 	// RendererComponent에서 세팅하는 값들
@@ -71,7 +68,7 @@ private:
 	// Output RT에 결과를 복사하는 함수
 	void CopyDepthFadeToOutput(FRDGBuilder& GraphBuilder, int32 DepthFadeTextureId);
 	
-	// DepthFadeTextures의 transient RDG ref 초기화 함수
+	// 프록시가 보관하는 texture들의 transient RDG ref 초기화 함수
 	void ResetDepthFadeTransientRefs();
 	
 	
@@ -137,6 +134,10 @@ private:
 	float FadeUpdateIntervalSeconds = 1.0f / 60.0f;
 
 	FPlaneTexture DepthFadeTextures[2][2];
+	FPlaneTexture CaptureDepthTexture;
+
+	FVector CaptureBottomInteractionCenterWS = FVector::ZeroVector;
+	bool bHasDepthCapture = false;
 
 	int32 CurrentStateIndex = 0;
 
