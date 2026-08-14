@@ -104,6 +104,8 @@ public:
 	}
 
 private:
+	void DrawDebugInteractionProxies() const;
+
 	void BeginAsyncLoadAssets();
 	void OnAssetsLoaded();
 

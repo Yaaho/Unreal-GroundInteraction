@@ -10,17 +10,29 @@
 #include "WaterInteractionRendererComponent.h"
 
 #include "Components/SceneComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Level.h"
 #include "Components/PrimitiveComponent.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "GameFramework/Actor.h"
+#include "HAL/IConsoleManager.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Engine/AssetManager.h"
 #include "Engine/StreamableManager.h"
 #include "WaterBodyComponent.h"
 #include "WaterBodyManager.h"
 #include "WaterSubsystem.h"
+
+#if ENABLE_DRAW_DEBUG
+static TAutoConsoleVariable<int32> CVarGroundInteractionDebugDrawProxies(
+	TEXT("GroundInteraction.DebugDrawProxies"),
+	0,
+	TEXT("Draw generated Ground Interaction proxy shapes.\n")
+	TEXT("0: Disabled\n")
+	TEXT("1: Enabled"),
+	ECVF_Cheat);
+#endif
 
 namespace GroundInteractionAssetPaths
 {
@@ -94,6 +106,8 @@ void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
 {
 	(void)DeltaTime;
 
+	DrawDebugInteractionProxies();
+
 	if (!bAssetsReady || !RendererActor || !RendererComponent)
 	{
 		return;
@@ -108,6 +122,94 @@ void UGroundInteractionWorldSubsystem::Tick(float DeltaTime)
 	
 	// 렌더 액터 위치를 플레이어 위치로 설정
 	RendererActor->SetActorLocation(RawCameraLocationWS);
+}
+
+void UGroundInteractionWorldSubsystem::DrawDebugInteractionProxies() const
+{
+#if ENABLE_DRAW_DEBUG
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	if (CVarGroundInteractionDebugDrawProxies.GetValueOnGameThread() <= 0)
+	{
+		return;
+	}
+
+	static constexpr int32 NumSegments = 16;
+	static constexpr float LifeTime = 0.0f;
+	static constexpr float Thickness = 1.0f;
+	static constexpr uint8 DepthPriority = SDPG_World;
+	const FLinearColor DebugColor(0.0f, 1.0f, 0.25f, 1.0f);
+
+	for (const TWeakObjectPtr<UPrimitiveComponent>& PrimitiveWeak : InteractionPrimitives)
+	{
+		const UGroundInteractionProxyMeshComponent* Proxy = Cast<UGroundInteractionProxyMeshComponent>(PrimitiveWeak.Get());
+		if (!IsValid(Proxy) || !Proxy->IsRegistered())
+		{
+			continue;
+		}
+
+		const UStaticMesh* StaticMesh = Proxy->GetStaticMesh();
+		if (!StaticMesh)
+		{
+			continue;
+		}
+
+		const FBoxSphereBounds LocalBounds = StaticMesh->GetBounds();
+		const FTransform ComponentTransform = Proxy->GetComponentTransform();
+		const FVector WorldCenter = ComponentTransform.TransformPosition(LocalBounds.Origin);
+		const FVector WorldScale = ComponentTransform.GetScale3D().GetAbs();
+		const FVector WorldExtent = LocalBounds.BoxExtent * WorldScale;
+		const FQuat WorldRotation = ComponentTransform.GetRotation();
+
+		if (StaticMesh == CubeMesh)
+		{
+			DrawDebugBox(
+				World,
+				WorldCenter,
+				WorldExtent,
+				WorldRotation,
+				DebugColor.ToFColor(true),
+				false,
+				LifeTime,
+				DepthPriority,
+				Thickness);
+		}
+		else if (StaticMesh == SphereMesh)
+		{
+			const float Radius = LocalBounds.SphereRadius * WorldScale.GetMax();
+			DrawDebugSphere(
+				World,
+				WorldCenter,
+				Radius,
+				NumSegments,
+				DebugColor.ToFColor(true),
+				false,
+				LifeTime,
+				DepthPriority,
+				Thickness);
+		}
+		else if (StaticMesh == CapsuleMesh)
+		{
+			const float Radius = FMath::Max(WorldExtent.X, WorldExtent.Y);
+			const float HalfHeight = FMath::Max(WorldExtent.Z, Radius);
+			DrawDebugCapsule(
+				World,
+				WorldCenter,
+				HalfHeight,
+				Radius,
+				WorldRotation,
+				DebugColor.ToFColor(true),
+				false,
+				LifeTime,
+				DepthPriority,
+				Thickness);
+		}
+	}
+#endif
 }
 
 TStatId UGroundInteractionWorldSubsystem::GetStatId() const

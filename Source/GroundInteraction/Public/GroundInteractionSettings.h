@@ -43,7 +43,7 @@ public:
 	
 	// Depth fade 실행 빈도
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="GroundInteraction", meta=(ClampMin="1", UIMin="1", UIMax="120"))
-	int32 DepthFadeUpdateRate = 60;
+	int32 DepthFadeUpdateRate = 30;
 	
 	// Depth Update 실행 빈도
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="GroundInteraction", meta=(ClampMin="1", UIMin="1", UIMax="120"))
