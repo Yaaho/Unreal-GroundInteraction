@@ -32,8 +32,8 @@ public:
 	UPROPERTY(EditAnywhere, Config, Category="GroundInteraction", meta=(ClampMin="0.0"))
 	float FadeRiseSpeed = 100.0f; // cm/s
 
-	UPROPERTY(EditAnywhere, Config, Category="GroundInteraction", meta=(ClampMin="0.0"))
-	float FadeMaxHeight = 300.0f; // cm
+	UPROPERTY(EditAnywhere, Config, Category="GroundInteraction", meta=(ClampMin="0.0", ClampMax="1024.0", UIMin="0.0"))
+	float FadeMaxHeight = 300.0f;
 	
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="GroundInteraction", meta=(ClampMin="16", UIMin="128", UIMax="2048"))
 	int32 GroundInteractionRenderTargetSize = 512;

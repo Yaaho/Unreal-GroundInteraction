@@ -202,7 +202,7 @@ static void AddWaterHeightSimulationPass(
 	PassParameters->DeltaTimeSeconds = DeltaTimeSeconds;
 	PassParameters->AdvectAmount = AdvectAmount;
 	PassParameters->Damping = Damping;
-	PassParameters->PreviousHeightSampler = TStaticSamplerState<SF_Bilinear, AM_Border, AM_Border, AM_Border, 0, 1, 0>::GetRHI();
+	PassParameters->PreviousHeightSampler = TStaticSamplerState<SF_Point, AM_Border, AM_Border, AM_Border, 0, 1, 0>::GetRHI();
 	PassParameters->PreviousHeightTexture = PreviousHeightTextureSRV;
 	PassParameters->CurrentHeightTexture = CurrentHeightTextureSRV;
 	PassParameters->NextHeightTexture = NextHeightTextureUAV;
