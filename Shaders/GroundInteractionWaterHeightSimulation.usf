@@ -1,8 +1,8 @@
 #include "/Engine/Private/Common.ush"
 
-Texture2D<float> PreviousHeightTexture;
-SamplerState PreviousHeightSampler;
 Texture2D<float> CurrentHeightTexture;
+SamplerState CurrentHeightSampler;
+Texture2D<float> PreviousHeightTexture;
 RWTexture2D<float> NextHeightTexture;
 
 int2 NumCells;
@@ -24,14 +24,14 @@ void MainCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	const float2 WorldOffset = AdvectAmount * DeltaTimeSeconds;
 	const float2 OffsetUV = WorldOffset / max(2.0f * InteractionExtentXY, float2(1.0e-6f, 1.0e-6f));
 
-	const float NeighborSum =
-		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2( OffsetUV.x, 0.0f), 0).r +
-		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2(-OffsetUV.x, 0.0f), 0).r +
-		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2(0.0f,  OffsetUV.y), 0).r +
-		PreviousHeightTexture.SampleLevel(PreviousHeightSampler, UV + float2(0.0f, -OffsetUV.y), 0).r;
+	const float CurrentNeighborSum =
+		CurrentHeightTexture.SampleLevel(CurrentHeightSampler, UV + float2( OffsetUV.x, 0.0f), 0).r +
+		CurrentHeightTexture.SampleLevel(CurrentHeightSampler, UV + float2(-OffsetUV.x, 0.0f), 0).r +
+		CurrentHeightTexture.SampleLevel(CurrentHeightSampler, UV + float2(0.0f,  OffsetUV.y), 0).r +
+		CurrentHeightTexture.SampleLevel(CurrentHeightSampler, UV + float2(0.0f, -OffsetUV.y), 0).r;
 
-	const float CurrentCenter = CurrentHeightTexture.Load(int3(Pixel, 0)).r;
+	const float PreviousCenterHeight = PreviousHeightTexture.Load(int3(Pixel, 0)).r;
 	const float DampingFactor = 1.0f - saturate(Damping * DeltaTimeSeconds);
 
-	NextHeightTexture[Pixel] = (0.5f * NeighborSum - CurrentCenter) * DampingFactor;
+	NextHeightTexture[Pixel] = (0.5f * CurrentNeighborSum - PreviousCenterHeight) * DampingFactor;
 }

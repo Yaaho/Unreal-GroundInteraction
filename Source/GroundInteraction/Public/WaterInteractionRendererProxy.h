@@ -40,14 +40,14 @@ private:
 	void ResetHeightTransientRefs();
 	void CopyHeightToOutput(FRDGBuilder& GraphBuilder, int32 SourceHeightTextureId);
 
-	int32 GetPreviousHeightTextureId() const
-	{
-		return PreviousHeightTextureId;
-	}
-
 	int32 GetCurrentHeightTextureId() const
 	{
 		return CurrentHeightTextureId;
+	}
+
+	int32 GetPreviousHeightTextureId() const
+	{
+		return PreviousHeightTextureId;
 	}
 
 	int32 GetNextHeightTextureId() const
@@ -57,31 +57,31 @@ private:
 
 	void ResetHeightTextureRoles()
 	{
-		PreviousHeightTextureId = 0;
-		CurrentHeightTextureId = 1;
+		CurrentHeightTextureId = 0;
+		PreviousHeightTextureId = 1;
 		NextHeightTextureId = 2;
 	}
 
 	void AdvanceHeightTextureAfterScrolling()
 	{
-		const int32 OldPreviousHeightTextureId = PreviousHeightTextureId;
 		const int32 OldCurrentHeightTextureId = CurrentHeightTextureId;
+		const int32 OldPreviousHeightTextureId = PreviousHeightTextureId;
 		const int32 OldNextHeightTextureId = NextHeightTextureId;
 
-		PreviousHeightTextureId = OldCurrentHeightTextureId;
-		CurrentHeightTextureId = OldNextHeightTextureId;
-		NextHeightTextureId = OldPreviousHeightTextureId;
+		CurrentHeightTextureId = OldPreviousHeightTextureId;
+		PreviousHeightTextureId = OldNextHeightTextureId;
+		NextHeightTextureId = OldCurrentHeightTextureId;
 	}
 
 	void AdvanceHeightTextureAfterSimulation()
 	{
-		const int32 OldPreviousHeightTextureId = PreviousHeightTextureId;
 		const int32 OldCurrentHeightTextureId = CurrentHeightTextureId;
+		const int32 OldPreviousHeightTextureId = PreviousHeightTextureId;
 		const int32 OldNextHeightTextureId = NextHeightTextureId;
 
-		PreviousHeightTextureId = OldNextHeightTextureId;
-		CurrentHeightTextureId = OldPreviousHeightTextureId;
-		NextHeightTextureId = OldCurrentHeightTextureId;
+		CurrentHeightTextureId = OldNextHeightTextureId;
+		PreviousHeightTextureId = OldCurrentHeightTextureId;
+		NextHeightTextureId = OldPreviousHeightTextureId;
 	}
 
 	FTextureReferenceRHIRef OutputHeightTextureReferenceRHI;
@@ -101,8 +101,8 @@ private:
 
 	FPlaneTexture HeightTextures[3];
 
-	int32 PreviousHeightTextureId = 0;
-	int32 CurrentHeightTextureId = 1;
+	int32 CurrentHeightTextureId = 0;
+	int32 PreviousHeightTextureId = 1;
 	int32 NextHeightTextureId = 2;
 
 	bool bClearHeightTextures = true;
