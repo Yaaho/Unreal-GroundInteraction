@@ -58,7 +58,7 @@ public:
 	FVector WaterInteractionWorldExtent = FVector(1000.0f, 1000.0f, 1000.0f);
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="16", UIMin="128", UIMax="2048"))
-	int32 WaterInteractionRenderTargetSize = 1024;
+	int32 WaterInteractionRenderTargetSize = 2048;
 
 	UPROPERTY(EditAnywhere, Config, BlueprintReadOnly, Category="WaterInteraction", meta=(EditCondition="bEnableWaterInteraction", EditConditionHides, ClampMin="1", UIMin="1", UIMax="32"))
 	int32 WaterInteractionLocationSnapCellCount = 64;
