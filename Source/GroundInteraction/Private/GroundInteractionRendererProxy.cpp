@@ -12,6 +12,12 @@
 
 static TMap<FSceneInterface*, TArray<FGroundInteractionRendererProxy*>> ProxiesByScene;
 
+DECLARE_GPU_STAT_NAMED(GroundInteractionGround, TEXT("GroundInteraction Ground"));
+DECLARE_GPU_STAT_NAMED(GroundInteractionGroundScrolling, TEXT("GroundInteraction Ground Scrolling"));
+DECLARE_GPU_STAT_NAMED(GroundInteractionGroundFade, TEXT("GroundInteraction Ground Fade"));
+DECLARE_GPU_STAT_NAMED(GroundInteractionGroundUpdateDepth, TEXT("GroundInteraction Ground Update Depth"));
+DECLARE_GPU_STAT_NAMED(GroundInteractionGroundOutputCopy, TEXT("GroundInteraction Ground Output Copy"));
+
 static constexpr int32 GROUND_GROUP_SIZE_X = 8;
 static constexpr int32 GROUND_GROUP_SIZE_Y = 8;
 static constexpr int32 GROUND_GROUP_SIZE_Z = 1;
@@ -397,6 +403,8 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 	{
 		return;
 	}
+
+	RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionGround, "GroundInteraction::Ground");
 	
 	// 새 RDG graph 진입 전 이전 graph의 transient RDG ref를 비운다.
 	ResetDepthFadeTransientRefs();
@@ -471,6 +479,8 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 			GraphBuilder.UseInternalAccessMode(CurrentDepthTexture);
 			GraphBuilder.UseInternalAccessMode(CurrentFadeTexture);
 
+			RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionGroundScrolling, "GroundInteraction::GroundScrolling");
+
 			AddGroundScrollingPass(
 				GraphBuilder,
 				PrimaryView->GetFeatureLevel(),
@@ -521,6 +531,8 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 			GraphBuilder.UseInternalAccessMode(DepthTexture);
 			GraphBuilder.UseInternalAccessMode(FadeTexture);
 
+			RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionGroundFade, "GroundInteraction::GroundFade");
+
 			AddFadePass(
 				GraphBuilder,
 				PrimaryView->GetFeatureLevel(),
@@ -560,6 +572,8 @@ void FGroundInteractionRendererProxy::Render(FRDGBuilder& GraphBuilder, FSceneVi
 			GraphBuilder.UseInternalAccessMode(DepthTexture);
 			GraphBuilder.UseInternalAccessMode(FadeTexture);
 			GraphBuilder.UseInternalAccessMode(CapturedDepthTexture);
+
+			RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionGroundUpdateDepth, "GroundInteraction::GroundUpdateDepth");
 
 			AddUpdateDepthPass(
 				GraphBuilder,
@@ -846,6 +860,8 @@ void FGroundInteractionRendererProxy::CopyDepthFadeToOutput(FRDGBuilder& GraphBu
 	GraphBuilder.UseInternalAccessMode(FadeTexture);
 	GraphBuilder.UseInternalAccessMode(OutputDepthTexture);
 	GraphBuilder.UseInternalAccessMode(OutputFadeTexture);
+
+	RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionGroundOutputCopy, "GroundInteraction::GroundOutputCopy");
 
 	AddCopyTexturePass(GraphBuilder, DepthTexture, OutputDepthTexture);
 	AddCopyTexturePass(GraphBuilder, FadeTexture, OutputFadeTexture);

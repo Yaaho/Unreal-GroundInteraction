@@ -11,7 +11,6 @@
 static TMap<FSceneInterface*, TArray<FWaterInteractionRendererProxy*>> WaterProxiesByScene;
 
 DECLARE_GPU_STAT_NAMED(GroundInteractionWater, TEXT("GroundInteraction Water"));
-DECLARE_GPU_STAT_NAMED(GroundInteractionWaterClear, TEXT("GroundInteraction Water Clear"));
 DECLARE_GPU_STAT_NAMED(GroundInteractionWaterScrolling, TEXT("GroundInteraction Water Scrolling"));
 DECLARE_GPU_STAT_NAMED(GroundInteractionWaterSplats, TEXT("GroundInteraction Water Splats"));
 DECLARE_GPU_STAT_NAMED(GroundInteractionWaterSimulation, TEXT("GroundInteraction Water Simulation"));
@@ -590,8 +589,6 @@ bool FWaterInteractionRendererProxy::CheckHeightTextures(FRDGBuilder& GraphBuild
 	{
 		return false;
 	}
-
-	RDG_EVENT_SCOPE_STAT(GraphBuilder, GroundInteractionWaterClear, "GroundInteraction::WaterClear");
 
 	ResetHeightTransientRefs();
 
